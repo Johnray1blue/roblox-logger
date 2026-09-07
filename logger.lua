@@ -1,538 +1,361 @@
--- ============================================================
---  PerformanceMonitorGUI.lua
---  LocalScript — letakkan di StarterPlayerScripts
--- ============================================================
+-- Universal RemoteEvent Logger with GUI (ICON FIXED)
+-- LocalScript → StarterPlayerScripts
+-- Fix: FAB pakai ImageButton + rbxassetid, fallback ke TextButton tanpa emoji
 
-local Players        = game:GetService("Players")
-local RunService     = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
--- ────────────────────────────────────────────────────────────
---  KONFIGURASI
--- ────────────────────────────────────────────────────────────
-local CFG = {
-    Title           = "⚡ PerfMonitor v1.0",
-    MaxLogLines     = 200,          -- batas buffer log
-    LogInterval     = 0.5,          -- detik antara setiap snapshot
-    WindowW         = 420,
-    WindowH         = 540,
-    HeaderH         = 36,
-    ToggleBtnH      = 40,
-    UtilBarH        = 34,
-    Padding         = 10,
-    ScrollLineH     = 16,
-    Font            = Enum.Font.Code,
-    FontBody        = Enum.Font.Gotham,
-    -- Palette: dark terminal aesthetic
-    BgDark          = Color3.fromHex("#0D1117"),
-    BgPanel         = Color3.fromHex("#161B22"),
-    BgHeader        = Color3.fromHex("#010409"),
-    AccentOn        = Color3.fromHex("#3FB950"),   -- hijau aktif
-    AccentOff       = Color3.fromHex("#F85149"),   -- merah nonaktif
-    AccentCopy      = Color3.fromHex("#58A6FF"),   -- biru copy
-    AccentClear     = Color3.fromHex("#E3B341"),   -- kuning clear
-    TextPrimary     = Color3.fromHex("#E6EDF3"),
-    TextMuted       = Color3.fromHex("#8B949E"),
-    TextLog         = Color3.fromHex("#A5D6FF"),
-    BorderColor     = Color3.fromHex("#30363D"),
-}
+-- ════════════════════════════════════════════════════════════
+--  SCREEN GUI
+-- ════════════════════════════════════════════════════════════
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name           = "RemoteLogger"
+screenGui.ResetOnSpawn   = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent         = playerGui
 
--- ────────────────────────────────────────────────────────────
---  STATE
--- ────────────────────────────────────────────────────────────
-local loopActive    = false
-local loopConn      = nil           -- RenderStepped / Heartbeat connection
-local logBuffer     = {}            -- akumulasi string log
-local logLabels     = {}            -- TextLabel di dalam ScrollingFrame
-local accTime       = 0
-local frameCount    = 0
-local isDragging    = false
-local dragOffset    = Vector2.zero
+-- ════════════════════════════════════════════════════════════
+--  FAB TOMBOL TOGGLE  (ImageButton — icon pasti muncul)
+-- ════════════════════════════════════════════════════════════
+-- Kita pakai ImageButton dengan icon dari Roblox asset library.
+-- rbxassetid://3926307971 = icon "list/log" (Roblox Studio icon sheet)
+-- Jika ingin ganti icon, cukup ubah ImageRectOffset & ImageRectSize.
 
--- ────────────────────────────────────────────────────────────
---  HELPER: buat instance berparameter
--- ────────────────────────────────────────────────────────────
-local function make(cls, props, parent)
-    local obj = Instance.new(cls)
-    for k, v in pairs(props) do obj[k] = v end
-    if parent then obj.Parent = parent end
-    return obj
-end
+local fab = Instance.new("ImageButton")
+fab.Size                  = UDim2.new(0, 56, 0, 56)
+fab.Position              = UDim2.new(0.5, -28, 1, -120)
+fab.BackgroundColor3      = Color3.fromRGB(26, 26, 46)
+fab.BorderSizePixel       = 0
+fab.ZIndex                = 10
+fab.Image                 = "rbxassetid://3926307971"  -- Roblox UI icon sheet
+fab.ImageRectOffset       = Vector2.new(4, 804)        -- icon "view list"
+fab.ImageRectSize         = Vector2.new(36, 36)
+fab.ImageColor3           = Color3.fromRGB(74, 222, 128)
+fab.ScaleType             = Enum.ScaleType.Fit
+fab.Parent                = screenGui
+Instance.new("UICorner", fab).CornerRadius = UDim.new(1, 0)  -- bulat sempurna
 
-local function makeCorner(radius, parent)
-    return make("UICorner", {CornerRadius = UDim.new(0, radius)}, parent)
-end
+local fabStroke = Instance.new("UIStroke", fab)
+fabStroke.Color     = Color3.fromRGB(74, 222, 128)
+fabStroke.Thickness = 2
 
-local function makeStroke(thickness, color, parent)
-    return make("UIStroke", {
-        Thickness = thickness,
-        Color     = color,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-    }, parent)
-end
+-- Label kecil di bawah FAB supaya user tau fungsinya
+local fabLabel = Instance.new("TextLabel")
+fabLabel.Size               = UDim2.new(0, 80, 0, 18)
+fabLabel.Position           = UDim2.new(0.5, -40, 1, -58)
+fabLabel.BackgroundTransparency = 1
+fabLabel.Text               = "LOGGER"
+fabLabel.TextColor3         = Color3.fromRGB(74, 222, 128)
+fabLabel.TextSize           = 11
+fabLabel.Font               = Enum.Font.GothamBold
+fabLabel.TextXAlignment     = Enum.TextXAlignment.Center
+fabLabel.ZIndex             = 10
+fabLabel.Parent             = screenGui
 
--- ────────────────────────────────────────────────────────────
---  BANGUN ScreenGui
--- ────────────────────────────────────────────────────────────
-local ScreenGui = make("ScreenGui", {
-    Name             = "PerfMonitorGui",
-    ResetOnSpawn     = false,
-    ZIndexBehavior   = Enum.ZIndexBehavior.Sibling,
-    IgnoreGuiInset   = true,
-}, PlayerGui)
+-- ════════════════════════════════════════════════════════════
+--  TOMBOL COPY ALL (floating, selalu kelihatan)
+-- ════════════════════════════════════════════════════════════
+local copyFloating = Instance.new("ImageButton")
+copyFloating.Size             = UDim2.new(0, 44, 0, 44)
+copyFloating.Position         = UDim2.new(0.5, 36, 1, -120)   -- kanan FAB
+copyFloating.BackgroundColor3 = Color3.fromRGB(58, 180, 100)
+copyFloating.BorderSizePixel  = 0
+copyFloating.ZIndex           = 10
+copyFloating.Image            = "rbxassetid://3926307971"
+copyFloating.ImageRectOffset  = Vector2.new(324, 604)         -- icon "copy/clipboard"
+copyFloating.ImageRectSize    = Vector2.new(36, 36)
+copyFloating.ImageColor3      = Color3.fromRGB(15, 15, 26)
+copyFloating.ScaleType        = Enum.ScaleType.Fit
+copyFloating.Parent           = screenGui
+Instance.new("UICorner", copyFloating).CornerRadius = UDim.new(1, 0)
 
--- Window utama
-local Window = make("Frame", {
-    Name            = "Window",
-    Size            = UDim2.new(0, CFG.WindowW, 0, CFG.WindowH),
-    Position        = UDim2.new(0.5, -CFG.WindowW/2, 0.5, -CFG.WindowH/2),
-    BackgroundColor3 = CFG.BgDark,
-    BorderSizePixel = 0,
-    ClipsDescendants = true,
-}, ScreenGui)
-makeCorner(8, Window)
-makeStroke(1, CFG.BorderColor, Window)
+local copyLabel = Instance.new("TextLabel")
+copyLabel.Size               = UDim2.new(0, 56, 0, 18)
+copyLabel.Position           = UDim2.new(0.5, 22, 1, -58)
+copyLabel.BackgroundTransparency = 1
+copyLabel.Text               = "COPY"
+copyLabel.TextColor3         = Color3.fromRGB(58, 180, 100)
+copyLabel.TextSize           = 11
+copyLabel.Font               = Enum.Font.GothamBold
+copyLabel.TextXAlignment     = Enum.TextXAlignment.Center
+copyLabel.ZIndex             = 10
+copyLabel.Parent             = screenGui
 
--- Drop shadow (dekoratif, di bawah window)
-local Shadow = make("Frame", {
-    Name            = "Shadow",
-    Size            = UDim2.new(1, 16, 1, 16),
-    Position        = UDim2.new(0, -8, 0, 6),
-    BackgroundColor3 = Color3.new(0,0,0),
-    BackgroundTransparency = 0.55,
-    BorderSizePixel = 0,
-    ZIndex          = Window.ZIndex - 1,
-}, Window)
-makeCorner(12, Shadow)
+-- ════════════════════════════════════════════════════════════
+--  PANEL UTAMA
+-- ════════════════════════════════════════════════════════════
+local panel = Instance.new("Frame")
+panel.Name              = "Panel"
+panel.Size              = UDim2.new(0.95, 0, 0.65, 0)
+panel.Position          = UDim2.new(0.025, 0, 0.05, 0)
+panel.BackgroundColor3  = Color3.fromRGB(15, 15, 26)
+panel.BorderSizePixel   = 0
+panel.Visible           = false
+panel.ZIndex            = 9
+panel.Parent            = screenGui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
+local panelStroke = Instance.new("UIStroke", panel)
+panelStroke.Color     = Color3.fromRGB(45, 45, 78)
+panelStroke.Thickness = 1
 
--- ── Header ──────────────────────────────────────────────────
-local Header = make("Frame", {
-    Name            = "Header",
-    Size            = UDim2.new(1, 0, 0, CFG.HeaderH),
-    BackgroundColor3 = CFG.BgHeader,
-    BorderSizePixel = 0,
-}, Window)
-makeCorner(8, Header)
+-- Header
+local header = Instance.new("Frame")
+header.Size             = UDim2.new(1, 0, 0, 44)
+header.BackgroundColor3 = Color3.fromRGB(26, 26, 46)
+header.BorderSizePixel  = 0
+header.ZIndex           = 10
+header.Parent           = panel
+Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
 
--- Patch sudut bawah header (agar tidak rounded di bawah)
-make("Frame", {
-    Size            = UDim2.new(1, 0, 0.5, 0),
-    Position        = UDim2.new(0, 0, 0.5, 0),
-    BackgroundColor3 = CFG.BgHeader,
-    BorderSizePixel = 0,
-}, Header)
+-- patch sudut bawah header agar tidak melengkung di bawah
+local headerFix = Instance.new("Frame")
+headerFix.Size            = UDim2.new(1, 0, 0, 12)
+headerFix.Position        = UDim2.new(0, 0, 1, -12)
+headerFix.BackgroundColor3 = Color3.fromRGB(26, 26, 46)
+headerFix.BorderSizePixel = 0
+headerFix.ZIndex          = 10
+headerFix.Parent          = header
 
-make("TextLabel", {
-    Text            = CFG.Title,
-    Size            = UDim2.new(1, -60, 1, 0),
-    Position        = UDim2.new(0, CFG.Padding, 0, 0),
-    BackgroundTransparency = 1,
-    Font            = CFG.FontBody,
-    TextSize        = 14,
-    TextColor3      = CFG.TextPrimary,
-    TextXAlignment  = Enum.TextXAlignment.Left,
-    TextYAlignment  = Enum.TextYAlignment.Center,
-    ZIndex          = 5,
-}, Header)
+-- Icon kecil di header (ImageLabel, bukan emoji)
+local headerIcon = Instance.new("ImageLabel")
+headerIcon.Size             = UDim2.new(0, 22, 0, 22)
+headerIcon.Position         = UDim2.new(0, 10, 0.5, -11)
+headerIcon.BackgroundTransparency = 1
+headerIcon.Image            = "rbxassetid://3926307971"
+headerIcon.ImageRectOffset  = Vector2.new(4, 804)
+headerIcon.ImageRectSize    = Vector2.new(36, 36)
+headerIcon.ImageColor3      = Color3.fromRGB(74, 222, 128)
+headerIcon.ZIndex           = 11
+headerIcon.Parent           = header
 
--- Indikator status (dot)
-local StatusDot = make("Frame", {
-    Name            = "StatusDot",
-    Size            = UDim2.new(0, 10, 0, 10),
-    Position        = UDim2.new(1, -CFG.Padding - 10, 0.5, -5),
-    BackgroundColor3 = CFG.AccentOff,
-    BorderSizePixel = 0,
-    ZIndex          = 5,
-}, Header)
-makeCorner(50, StatusDot)
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size             = UDim2.new(1, -120, 1, 0)
+titleLabel.Position         = UDim2.new(0, 38, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text             = "REMOTE LOGGER"
+titleLabel.TextColor3       = Color3.fromRGB(74, 222, 128)
+titleLabel.TextSize         = 13
+titleLabel.Font             = Enum.Font.GothamBold
+titleLabel.TextXAlignment   = Enum.TextXAlignment.Left
+titleLabel.ZIndex           = 11
+titleLabel.Parent           = header
 
--- Drag handle pada header
-Header.InputBegan:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.MouseButton1
-    or inp.UserInputType == Enum.UserInputType.Touch then
-        isDragging  = true
-        dragOffset  = inp.Position - Vector2.new(Window.AbsolutePosition.X, Window.AbsolutePosition.Y)
-    end
-end)
-Header.InputEnded:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.MouseButton1
-    or inp.UserInputType == Enum.UserInputType.Touch then
-        isDragging = false
-    end
-end)
-UserInputService.InputChanged:Connect(function(inp)
-    if isDragging and (inp.UserInputType == Enum.UserInputType.MouseMovement
-    or inp.UserInputType == Enum.UserInputType.Touch) then
-        local pos = inp.Position
-        Window.Position = UDim2.new(0, pos.X - dragOffset.X, 0, pos.Y - dragOffset.Y)
-    end
-end)
+local counterLabel = Instance.new("TextLabel")
+counterLabel.Size               = UDim2.new(0, 80, 1, 0)
+counterLabel.Position           = UDim2.new(1, -130, 0, 0)
+counterLabel.BackgroundTransparency = 1
+counterLabel.Text               = "0 log"
+counterLabel.TextColor3         = Color3.fromRGB(96, 96, 160)
+counterLabel.TextSize           = 11
+counterLabel.Font               = Enum.Font.Gotham
+counterLabel.TextXAlignment     = Enum.TextXAlignment.Right
+counterLabel.ZIndex             = 11
+counterLabel.Parent             = header
 
--- ── Body container ───────────────────────────────────────────
-local Body = make("Frame", {
-    Name            = "Body",
-    Size            = UDim2.new(1, 0, 1, -CFG.HeaderH),
-    Position        = UDim2.new(0, 0, 0, CFG.HeaderH),
-    BackgroundColor3 = CFG.BgPanel,
-    BorderSizePixel = 0,
-}, Window)
+-- Tombol close di header (X teks, bukan emoji — pasti render)
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size               = UDim2.new(0, 36, 0, 30)
+closeBtn.Position           = UDim2.new(1, -42, 0.5, -15)
+closeBtn.BackgroundTransparency = 1
+closeBtn.Text               = "X"          -- huruf biasa, bukan emoji
+closeBtn.TextColor3         = Color3.fromRGB(200, 100, 100)
+closeBtn.TextSize           = 15
+closeBtn.Font               = Enum.Font.GothamBold
+closeBtn.ZIndex             = 11
+closeBtn.Parent             = header
 
-local BodyLayout = make("UIListLayout", {
-    SortOrder       = Enum.SortOrder.LayoutOrder,
-    Padding         = UDim.new(0, CFG.Padding),
-    FillDirection   = Enum.FillDirection.Vertical,
-    HorizontalAlignment = Enum.HorizontalAlignment.Center,
-}, Body)
+-- ════════════════════════════════════════════════════════════
+--  LOG AREA (ScrollingFrame)
+-- ════════════════════════════════════════════════════════════
+local logArea = Instance.new("ScrollingFrame")
+logArea.Size                  = UDim2.new(1, -8, 1, -50)
+logArea.Position              = UDim2.new(0, 4, 0, 48)
+logArea.BackgroundTransparency = 1
+logArea.BorderSizePixel       = 0
+logArea.ScrollBarThickness    = 4
+logArea.ScrollBarImageColor3  = Color3.fromRGB(45, 45, 78)
+logArea.CanvasSize            = UDim2.new(0, 0, 0, 0)
+logArea.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+logArea.ZIndex                = 10
+logArea.Parent                = panel
 
-make("UIPadding", {
-    PaddingTop    = UDim.new(0, CFG.Padding),
-    PaddingBottom = UDim.new(0, CFG.Padding),
-    PaddingLeft   = UDim.new(0, CFG.Padding),
-    PaddingRight  = UDim.new(0, CFG.Padding),
-}, Body)
+local listLayout = Instance.new("UIListLayout", logArea)
+listLayout.Padding    = UDim.new(0, 4)
+listLayout.SortOrder  = Enum.SortOrder.LayoutOrder
 
--- ── Toggle Button ────────────────────────────────────────────
-local ToggleBtn = make("TextButton", {
-    Name            = "ToggleBtn",
-    LayoutOrder     = 1,
-    Size            = UDim2.new(1, 0, 0, CFG.ToggleBtnH),
-    BackgroundColor3 = CFG.AccentOff,
-    Font            = CFG.FontBody,
-    TextSize        = 14,
-    TextColor3      = Color3.new(1,1,1),
-    Text            = "▶  MULAI MONITORING",
-    BorderSizePixel = 0,
-    AutoButtonColor = false,
-}, Body)
-makeCorner(6, ToggleBtn)
+local logPad = Instance.new("UIPadding", logArea)
+logPad.PaddingTop    = UDim.new(0, 4)
+logPad.PaddingBottom = UDim.new(0, 4)
 
--- ── Stats bar ────────────────────────────────────────────────
-local StatsBar = make("Frame", {
-    Name            = "StatsBar",
-    LayoutOrder     = 2,
-    Size            = UDim2.new(1, 0, 0, 28),
-    BackgroundColor3 = CFG.BgDark,
-    BorderSizePixel = 0,
-}, Body)
-makeCorner(4, StatsBar)
-makeStroke(1, CFG.BorderColor, StatsBar)
-
-local StatsLayout = make("UIListLayout", {
-    FillDirection   = Enum.FillDirection.Horizontal,
-    HorizontalAlignment = Enum.HorizontalAlignment.Left,
-    VerticalAlignment   = Enum.VerticalAlignment.Center,
-    Padding         = UDim.new(0, 0),
-}, StatsBar)
-
-local function makeStatLabel(labelText, valueDefault, order)
-    local cell = make("Frame", {
-        LayoutOrder     = order,
-        Size            = UDim2.new(0.33, 0, 1, 0),
-        BackgroundTransparency = 1,
-    }, StatsBar)
-    make("TextLabel", {
-        Text            = labelText,
-        Size            = UDim2.new(0.5, 0, 1, 0),
-        BackgroundTransparency = 1,
-        Font            = CFG.FontBody,
-        TextSize        = 11,
-        TextColor3      = CFG.TextMuted,
-        TextXAlignment  = Enum.TextXAlignment.Right,
-    }, cell)
-    local val = make("TextLabel", {
-        Text            = valueDefault,
-        Position        = UDim2.new(0.5, 4, 0, 0),
-        Size            = UDim2.new(0.5, -4, 1, 0),
-        BackgroundTransparency = 1,
-        Font            = CFG.Font,
-        TextSize        = 12,
-        TextColor3      = CFG.AccentOn,
-        TextXAlignment  = Enum.TextXAlignment.Left,
-    }, cell)
-    return val
-end
-
-local ValFPS  = makeStatLabel("FPS ", "—", 1)
-local ValPing = makeStatLabel("Ping ", "—", 2)
-local ValMem  = makeStatLabel("Mem ", "—", 3)
-
--- ── Log header row ───────────────────────────────────────────
-local LogHeader = make("Frame", {
-    Name        = "LogHeader",
-    LayoutOrder = 3,
-    Size        = UDim2.new(1, 0, 0, 22),
-    BackgroundTransparency = 1,
-}, Body)
-
-make("TextLabel", {
-    Text        = "LOG OUTPUT",
-    Size        = UDim2.new(0.5, 0, 1, 0),
-    BackgroundTransparency = 1,
-    Font        = CFG.FontBody,
-    TextSize    = 11,
-    TextColor3  = CFG.TextMuted,
-    TextXAlignment = Enum.TextXAlignment.Left,
-}, LogHeader)
-
-local LogCountLabel = make("TextLabel", {
-    Text        = "0 baris",
-    Size        = UDim2.new(0.5, 0, 1, 0),
-    Position    = UDim2.new(0.5, 0, 0, 0),
-    BackgroundTransparency = 1,
-    Font        = CFG.Font,
-    TextSize    = 11,
-    TextColor3  = CFG.TextMuted,
-    TextXAlignment = Enum.TextXAlignment.Right,
-}, LogHeader)
-
--- ── ScrollingFrame (log panel) ───────────────────────────────
-local LogScrollH = CFG.WindowH - CFG.HeaderH - CFG.ToggleBtnH - 28 - 22 - CFG.UtilBarH
-                   - CFG.Padding * 6  -- account for padding/spacing
-
-local LogScroll = make("ScrollingFrame", {
-    Name                    = "LogScroll",
-    LayoutOrder             = 4,
-    Size                    = UDim2.new(1, 0, 1, -(CFG.ToggleBtnH + 28 + 22 + CFG.UtilBarH + CFG.Padding * 4 + 20)),
-    BackgroundColor3        = CFG.BgDark,
-    BorderSizePixel         = 0,
-    CanvasSize              = UDim2.new(0, 0, 0, 0),
-    ScrollBarThickness      = 4,
-    ScrollBarImageColor3    = CFG.BorderColor,
-    AutomaticCanvasSize     = Enum.AutomaticSize.Y,
-    ScrollingDirection      = Enum.ScrollingDirection.Y,
-    ClipsDescendants        = true,
-}, Body)
-makeCorner(4, LogScroll)
-makeStroke(1, CFG.BorderColor, LogScroll)
-
-make("UIPadding", {
-    PaddingLeft   = UDim.new(0, 6),
-    PaddingRight  = UDim.new(0, 6),
-    PaddingTop    = UDim.new(0, 4),
-    PaddingBottom = UDim.new(0, 4),
-}, LogScroll)
-
-local LogLayout = make("UIListLayout", {
-    SortOrder   = Enum.SortOrder.LayoutOrder,
-    Padding     = UDim.new(0, 1),
-}, LogScroll)
-
--- ── Utility bar ──────────────────────────────────────────────
-local UtilBar = make("Frame", {
-    Name        = "UtilBar",
-    LayoutOrder = 5,
-    Size        = UDim2.new(1, 0, 0, CFG.UtilBarH),
-    BackgroundTransparency = 1,
-}, Body)
-
-local UtilLayout = make("UIListLayout", {
-    FillDirection   = Enum.FillDirection.Horizontal,
-    HorizontalAlignment = Enum.HorizontalAlignment.Center,
-    VerticalAlignment   = Enum.VerticalAlignment.Center,
-    Padding         = UDim.new(0, 8),
-}, UtilBar)
-
-local function makeUtilBtn(label, color, order)
-    local btn = make("TextButton", {
-        LayoutOrder     = order,
-        Size            = UDim2.new(0.47, 0, 1, 0),
-        BackgroundColor3 = color,
-        Font            = CFG.FontBody,
-        TextSize        = 12,
-        TextColor3      = Color3.new(1,1,1),
-        Text            = label,
-        BorderSizePixel = 0,
-        AutoButtonColor = false,
-    }, UtilBar)
-    makeCorner(5, btn)
-    return btn
-end
-
-local CopyBtn  = makeUtilBtn("📋  Salin Log", CFG.AccentCopy, 1)
-local ClearBtn = makeUtilBtn("🗑  Hapus Log", CFG.AccentClear, 2)
-
--- ────────────────────────────────────────────────────────────
---  LOGIKA LOG
--- ────────────────────────────────────────────────────────────
-local function timestamp()
-    -- Format [MM:SS.ms]
-    local t   = tick()
-    local sec = math.floor(t) % 3600
-    local ms  = math.floor((t % 1) * 100)
-    return string.format("[%02d:%02d.%02d]", math.floor(sec/60), sec%60, ms)
-end
-
-local function pushLog(msg)
-    if #logBuffer >= CFG.MaxLogLines then
-        -- buang baris paling lama
-        table.remove(logBuffer, 1)
-        local firstLabel = logLabels[1]
-        if firstLabel then
-            firstLabel:Destroy()
-            table.remove(logLabels, 1)
+-- ════════════════════════════════════════════════════════════
+--  SERIALIZER
+-- ════════════════════════════════════════════════════════════
+local function serializeArg(arg, depth)
+    depth = depth or 0
+    local indent = string.rep("  ", depth)
+    if type(arg) == "table" then
+        local parts = {}
+        for k, v in pairs(arg) do
+            table.insert(parts, indent .. "  [" .. tostring(k) .. "] = " .. serializeArg(v, depth + 1))
         end
-        -- update LayoutOrder supaya tetap urut
-        for i, lbl in ipairs(logLabels) do
-            lbl.LayoutOrder = i
-        end
-    end
-
-    local line = timestamp() .. "  " .. msg
-    table.insert(logBuffer, line)
-
-    local lbl = make("TextLabel", {
-        LayoutOrder         = #logBuffer,
-        Size                = UDim2.new(1, 0, 0, CFG.ScrollLineH),
-        BackgroundTransparency = 1,
-        Font                = CFG.Font,
-        TextSize            = 12,
-        TextColor3          = CFG.TextLog,
-        Text                = line,
-        TextXAlignment      = Enum.TextXAlignment.Left,
-        TextYAlignment      = Enum.TextYAlignment.Center,
-        TextTruncate        = Enum.TextTruncate.AtEnd,
-        RichText            = false,
-    }, LogScroll)
-    table.insert(logLabels, lbl)
-
-    LogCountLabel.Text = #logBuffer .. " baris"
-
-    -- auto-scroll ke bawah
-    task.defer(function()
-        LogScroll.CanvasPosition = Vector2.new(0, math.huge)
-    end)
-end
-
--- ────────────────────────────────────────────────────────────
---  LOOP MONITORING
--- ────────────────────────────────────────────────────────────
-local lastFPS   = 0
-local function startLoop()
-    accTime    = 0
-    frameCount = 0
-    loopConn   = RunService.Heartbeat:Connect(function(dt)
-        accTime    = accTime + dt
-        frameCount = frameCount + 1
-
-        if accTime >= CFG.LogInterval then
-            local fps   = math.round(frameCount / accTime)
-            local ping  = LocalPlayer:GetNetworkPing and math.round(LocalPlayer:GetNetworkPing() * 1000) or 0
-            local mem   = math.round(game:GetService("Stats"):GetTotalMemoryUsageMb())
-
-            ValFPS.Text  = fps  .. " fps"
-            ValPing.Text = ping .. " ms"
-            ValMem.Text  = mem  .. " MB"
-
-            -- Warna FPS sebagai indikator health
-            if fps >= 55 then
-                ValFPS.TextColor3 = CFG.AccentOn
-            elseif fps >= 30 then
-                ValFPS.TextColor3 = CFG.AccentClear
-            else
-                ValFPS.TextColor3 = CFG.AccentOff
-            end
-
-            pushLog(string.format("FPS: %3d | Ping: %4d ms | Mem: %5d MB", fps, ping, mem))
-
-            accTime    = 0
-            frameCount = 0
-        end
-    end)
-end
-
-local function stopLoop()
-    if loopConn then
-        loopConn:Disconnect()
-        loopConn = nil
-    end
-    pushLog("── Monitoring dihentikan ──")
-    ValFPS.Text  = "—"
-    ValPing.Text = "—"
-    ValMem.Text  = "—"
-    ValFPS.TextColor3 = CFG.AccentOn
-end
-
--- ────────────────────────────────────────────────────────────
---  EFEK TOMBOL (hover / press)
--- ────────────────────────────────────────────────────────────
-local function btnEffect(btn, baseColor)
-    btn.MouseEnter:Connect(function()
-        btn.BackgroundColor3 = baseColor:Lerp(Color3.new(1,1,1), 0.12)
-    end)
-    btn.MouseLeave:Connect(function()
-        btn.BackgroundColor3 = baseColor
-    end)
-    btn.MouseButton1Down:Connect(function()
-        btn.BackgroundColor3 = baseColor:Lerp(Color3.new(0,0,0), 0.2)
-    end)
-    btn.MouseButton1Up:Connect(function()
-        btn.BackgroundColor3 = baseColor
-    end)
-end
-
--- ────────────────────────────────────────────────────────────
---  KONEKSI TOMBOL
--- ────────────────────────────────────────────────────────────
-ToggleBtn.MouseButton1Click:Connect(function()
-    loopActive = not loopActive
-    if loopActive then
-        ToggleBtn.Text              = "⏹  HENTIKAN MONITORING"
-        ToggleBtn.BackgroundColor3  = CFG.AccentOn
-        StatusDot.BackgroundColor3  = CFG.AccentOn
-        pushLog("── Monitoring dimulai ──")
-        startLoop()
+        return "{\n" .. table.concat(parts, ",\n") .. "\n" .. indent .. "}"
+    elseif typeof(arg) == "Instance" then
+        return "<" .. arg.ClassName .. ": '" .. arg.Name .. "'>"
+    elseif typeof(arg) == "Vector3" then
+        return string.format("Vector3(%.2f, %.2f, %.2f)", arg.X, arg.Y, arg.Z)
+    elseif typeof(arg) == "CFrame" then
+        local p = arg.Position
+        return string.format("CFrame(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
+    elseif typeof(arg) == "Color3" then
+        return string.format("Color3(%.2f, %.2f, %.2f)", arg.R, arg.G, arg.B)
+    elseif type(arg) == "string" then
+        return '"' .. arg .. '"'
     else
-        ToggleBtn.Text              = "▶  MULAI MONITORING"
-        ToggleBtn.BackgroundColor3  = CFG.AccentOff
-        StatusDot.BackgroundColor3  = CFG.AccentOff
-        stopLoop()
+        return tostring(arg)
     end
+end
+
+local function formatArgs(args)
+    if #args == 0 then return "(no args)" end
+    local parts = {}
+    for i, v in ipairs(args) do
+        table.insert(parts, "Arg[" .. i .. "]: " .. serializeArg(v))
+    end
+    return table.concat(parts, "\n")
+end
+
+-- ════════════════════════════════════════════════════════════
+--  TAMBAH LOG ENTRY
+-- ════════════════════════════════════════════════════════════
+local allLogs  = {}
+local logCount = 0
+
+local function addLogEntry(remoteName, argsText)
+    logCount += 1
+    local time     = os.date("%H:%M:%S")
+    local fullText = "[" .. time .. "] " .. remoteName .. "\n" .. argsText
+    table.insert(allLogs, fullText)
+    counterLabel.Text = logCount .. " log"
+
+    local entry = Instance.new("TextButton")
+    entry.Size            = UDim2.new(1, 0, 0, 0)
+    entry.AutomaticSize   = Enum.AutomaticSize.Y
+    entry.BackgroundColor3 = Color3.fromRGB(26, 26, 46)
+    entry.BorderSizePixel = 0
+    entry.TextTransparency = 1
+    entry.LayoutOrder     = logCount
+    entry.ZIndex          = 11
+    entry.Parent          = logArea
+    Instance.new("UICorner", entry).CornerRadius = UDim.new(0, 6)
+
+    local leftBar = Instance.new("Frame", entry)
+    leftBar.Size             = UDim2.new(0, 3, 1, 0)
+    leftBar.BackgroundColor3 = Color3.fromRGB(74, 222, 128)
+    leftBar.BorderSizePixel  = 0
+    leftBar.ZIndex           = 12
+
+    local textLabel = Instance.new("TextLabel", entry)
+    textLabel.Size              = UDim2.new(1, -14, 0, 0)
+    textLabel.Position          = UDim2.new(0, 10, 0, 6)
+    textLabel.AutomaticSize     = Enum.AutomaticSize.Y
+    textLabel.BackgroundTransparency = 1
+    textLabel.Text              = fullText
+    textLabel.TextColor3        = Color3.fromRGB(180, 200, 255)
+    textLabel.TextSize          = 11
+    textLabel.Font              = Enum.Font.Code
+    textLabel.TextXAlignment    = Enum.TextXAlignment.Left
+    textLabel.TextWrapped       = true
+    textLabel.ZIndex            = 12
+
+    local pad = Instance.new("UIPadding", entry)
+    pad.PaddingLeft   = UDim.new(0, 10)
+    pad.PaddingRight  = UDim.new(0, 6)
+    pad.PaddingTop    = UDim.new(0, 6)
+    pad.PaddingBottom = UDim.new(0, 6)
+
+    -- Klik entry = copy entry itu saja
+    entry.MouseButton1Click:Connect(function()
+        if setclipboard then
+            setclipboard(fullText)
+        end
+        textLabel.TextColor3 = Color3.fromRGB(74, 222, 128)
+        task.wait(0.5)
+        textLabel.TextColor3 = Color3.fromRGB(180, 200, 255)
+    end)
+
+    task.defer(function()
+        logArea.CanvasPosition = Vector2.new(0, logArea.AbsoluteCanvasSize.Y)
+    end)
+end
+
+-- ════════════════════════════════════════════════════════════
+--  HOOK REMOTE
+-- ════════════════════════════════════════════════════════════
+local function hookRemote(remote)
+    remote.OnClientEvent:Connect(function(...)
+        addLogEntry(remote:GetFullName(), formatArgs({...}))
+    end)
+end
+
+local function scanAndHook(parent)
+    for _, obj in ipairs(parent:GetDescendants()) do
+        if obj:IsA("RemoteEvent") then
+            hookRemote(obj)
+        end
+    end
+    parent.DescendantAdded:Connect(function(obj)
+        if obj:IsA("RemoteEvent") then
+            task.wait(0.1)
+            hookRemote(obj)
+        end
+    end)
+end
+
+-- ════════════════════════════════════════════════════════════
+--  KONTROL TOMBOL
+-- ════════════════════════════════════════════════════════════
+local isPanelOpen = false
+
+fab.MouseButton1Click:Connect(function()
+    isPanelOpen = not isPanelOpen
+    panel.Visible = isPanelOpen
+    -- Animasi sederhana: pulse warna border FAB
+    fabStroke.Color = isPanelOpen
+        and Color3.fromRGB(255, 255, 100)
+        or  Color3.fromRGB(74, 222, 128)
 end)
 
-CopyBtn.MouseButton1Click:Connect(function()
-    if #logBuffer == 0 then
-        pushLog("[SISTEM] Buffer kosong, tidak ada yang disalin.")
+closeBtn.MouseButton1Click:Connect(function()
+    isPanelOpen   = false
+    panel.Visible = false
+    fabStroke.Color = Color3.fromRGB(74, 222, 128)
+end)
+
+copyFloating.MouseButton1Click:Connect(function()
+    if #allLogs == 0 then
+        copyLabel.Text      = "KOSONG!"
+        copyLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        task.wait(1)
+        copyLabel.Text      = "COPY"
+        copyLabel.TextColor3 = Color3.fromRGB(58, 180, 100)
         return
     end
-    local fullLog = table.concat(logBuffer, "\n")
     if setclipboard then
-        setclipboard(fullLog)
-        pushLog(string.format("[SISTEM] %d baris disalin ke clipboard.", #logBuffer))
-    else
-        -- Fallback: warn jika setclipboard tidak tersedia
-        pushLog("[SISTEM] setclipboard() tidak tersedia di lingkungan ini.")
+        setclipboard(table.concat(allLogs, "\n---\n"))
     end
+    copyLabel.Text      = "DONE!"
+    copyLabel.TextColor3 = Color3.fromRGB(255, 255, 100)
+    task.wait(1.5)
+    copyLabel.Text      = "COPY"
+    copyLabel.TextColor3 = Color3.fromRGB(58, 180, 100)
 end)
 
-ClearBtn.MouseButton1Click:Connect(function()
-    -- Hapus semua label
-    for _, lbl in ipairs(logLabels) do lbl:Destroy() end
-    logLabels  = {}
-    logBuffer  = {}
-    LogCountLabel.Text = "0 baris"
-    pushLog("[SISTEM] Log dibersihkan.")
-end)
-
--- Efek visual tombol utilitas
-btnEffect(CopyBtn,  CFG.AccentCopy)
-btnEffect(ClearBtn, CFG.AccentClear)
-
--- Toggle button tidak pakai btnEffect generik karena warnanya berubah-ubah
-ToggleBtn.MouseEnter:Connect(function()
-    local base = loopActive and CFG.AccentOn or CFG.AccentOff
-    ToggleBtn.BackgroundColor3 = base:Lerp(Color3.new(1,1,1), 0.12)
-end)
-ToggleBtn.MouseLeave:Connect(function()
-    ToggleBtn.BackgroundColor3 = loopActive and CFG.AccentOn or CFG.AccentOff
-end)
-
--- ────────────────────────────────────────────────────────────
---  LOG AWAL
--- ────────────────────────────────────────────────────────────
-pushLog("[SISTEM] PerfMonitorGUI siap. Tekan tombol untuk memulai.")
-pushLog(string.format("[SISTEM] Buffer maks: %d baris | Interval: %.1f dtk", CFG.MaxLogLines, CFG.LogInterval))
-
--- ============================================================
+-- ════════════════════════════════════════════════════════════
+--  START
+-- ════════════════════════════════════════════════════════════
+task.wait(1)
+scanAndHook(ReplicatedStorage)
+scanAndHook(workspace)

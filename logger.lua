@@ -6,21 +6,33 @@ local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local CFG = {
-    -- Edit nama-nama supply di sini (case-sensitive, harus exact match)
-    -- Jalanin "Scan Workspace" dulu buat tau nama aslinya
-    SupplyNames     = { "Egg", "Coin", "Crystal", "Supply" },
-    
-    -- Partial match (case-insensitive) — kalau nama object MENGANDUNG string ini
-    SupplyPartial   = { "egg", "coin", "crystal", "gem", "supply", "item", "collect" },
+    -- ── Isi setelah Scan Workspace ──────────────────────────
+    -- Nama object binatang/creature di Workspace (exact atau partial)
+    AnimalNames     = { "Chicken", "Animal", "Creature", "Beast" },  -- ganti ini
+    AnimalPartial   = { "animal", "creature", "chicken", "cow", "pig", "beast", "monster" },
 
-    SupplyTokenName = "EggToken",
+    -- Nama egg/supply yang mau diambil
+    EggNames        = { "Egg" },
+    EggPartial      = { "egg" },
+
+    -- Radius pencarian egg di sekitar binatang (stud)
+    TerritoryRadius = 30,
+
+    -- Mulai ambil dari territory ke-N (1 = terdekat dari base)
+    -- User bisa ubah ini dari GUI
+    StartFromTerritory = 1,
+
+    -- Parent yang DILARANG — egg milik player lain
+    -- Script akan skip egg yang ada di dalam karakter/base player lain
+    BlockedParentNames = { "Base", "PlayerBase", "House", "Home" }, -- ganti kalau perlu
+
     ArrivalDistance = 5,
     MoveTimeout     = 8,
     CycleDelay      = 0.5,
 }
 
 -- ────────────────────────────────────────────────────────────
---  REFERENSI KARAKTER (selalu LocalPlayer)
+--  REFERENSI
 -- ────────────────────────────────────────────────────────────
 local player    = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -31,30 +43,43 @@ local basePosition = nil
 local botRunning   = false
 
 -- ────────────────────────────────────────────────────────────
---  isSupplyObject() — cek semua kriteria
+--  HELPER: cek apakah object adalah milik player lain
 -- ────────────────────────────────────────────────────────────
-local function isSupplyObject(obj)
-    local name = obj.Name
-
-    -- Exact match
-    for _, n in ipairs(CFG.SupplyNames) do
-        if name == n then return true end
+local function isOwnedByOtherPlayer(obj)
+    -- Cek apakah obj ada di dalam karakter player lain
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and p.Character then
+            if obj:IsDescendantOf(p.Character) then
+                return true
+            end
+        end
     end
 
-    -- Partial match (case-insensitive)
-    local nameLower = name:lower()
-    for _, p in ipairs(CFG.SupplyPartial) do
-        if nameLower:find(p, 1, true) then return true end
+    -- Cek parent chain — kalau ada nama yang masuk daftar "base player"
+    local current = obj.Parent
+    local depth = 0
+    while current and current ~= workspace and depth < 8 do
+        for _, blockedName in ipairs(CFG.BlockedParentNames) do
+            if current.Name:lower():find(blockedName:lower(), 1, true) then
+                return true
+            end
+        end
+        -- Cek juga apakah parentnya adalah folder milik player lain
+        -- (format umum: "PlayerName_Base" atau folder bernama username player)
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player and current.Name == p.Name then
+                return true
+            end
+        end
+        current = current.Parent
+        depth += 1
     end
-
-    -- Token child
-    if obj:FindFirstChild(CFG.SupplyTokenName) then return true end
 
     return false
 end
 
 -- ────────────────────────────────────────────────────────────
---  getPosition() — ambil posisi dari BasePart atau Model
+--  HELPER: getPosition
 -- ────────────────────────────────────────────────────────────
 local function getPosition(obj)
     if obj:IsA("Model") then
@@ -68,33 +93,96 @@ local function getPosition(obj)
 end
 
 -- ────────────────────────────────────────────────────────────
---  findNearestSupply()
+--  HELPER: cek apakah object adalah binatang/territory
 -- ────────────────────────────────────────────────────────────
-local function findNearestSupply()
-    local nearest     = nil
-    local nearestDist = math.huge
-    local nearestName = ""
-    local botPos      = rootPart.Position
+local function isAnimal(obj)
+    local name = obj.Name
+    for _, n in ipairs(CFG.AnimalNames) do
+        if name == n then return true end
+    end
+    local nameLower = name:lower()
+    for _, p in ipairs(CFG.AnimalPartial) do
+        if nameLower:find(p, 1, true) then return true end
+    end
+    return false
+end
+
+-- ────────────────────────────────────────────────────────────
+--  HELPER: cek apakah object adalah egg
+-- ────────────────────────────────────────────────────────────
+local function isEgg(obj)
+    local name = obj.Name
+    for _, n in ipairs(CFG.EggNames) do
+        if name == n then return true end
+    end
+    local nameLower = name:lower()
+    for _, p in ipairs(CFG.EggPartial) do
+        if nameLower:find(p, 1, true) then return true end
+    end
+    return false
+end
+
+-- ────────────────────────────────────────────────────────────
+--  CORE: Deteksi semua territory (binatang), sort by distance dari base
+-- ────────────────────────────────────────────────────────────
+local function detectTerritories(fromPos)
+    local territories = {}
 
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if isSupplyObject(obj) then
-            local targetPos = getPosition(obj)
-            if targetPos then
-                local dist = (botPos - targetPos).Magnitude
-                if dist < nearestDist then
-                    nearestDist = dist
-                    nearest     = targetPos
-                    nearestName = obj.Name
+        if isAnimal(obj) then
+            local pos = getPosition(obj)
+            if pos then
+                -- Skip kalau milik player lain
+                if not isOwnedByOtherPlayer(obj) then
+                    local dist = (fromPos - pos).Magnitude
+                    table.insert(territories, {
+                        name     = obj.Name,
+                        position = pos,
+                        distance = dist,
+                        object   = obj,
+                    })
                 end
             end
         end
     end
 
-    return nearest, nearestName
+    -- Sort: terdekat dari base = territory #1
+    table.sort(territories, function(a, b)
+        return a.distance < b.distance
+    end)
+
+    return territories
 end
 
 -- ────────────────────────────────────────────────────────────
---  moveToPosition() — dengan timeout
+--  CORE: Cari egg di sekitar territory tertentu (dalam radius)
+-- ────────────────────────────────────────────────────────────
+local function findEggsInTerritory(centerPos)
+    local eggs = {}
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if isEgg(obj) then
+            local pos = getPosition(obj)
+            if pos then
+                local dist = (centerPos - pos).Magnitude
+                if dist <= CFG.TerritoryRadius then
+                    -- Pastikan bukan milik player lain
+                    if not isOwnedByOtherPlayer(obj) then
+                        table.insert(eggs, { position = pos, name = obj.Name, dist = dist })
+                    end
+                end
+            end
+        end
+    end
+
+    -- Sort: terdekat dari center territory dulu
+    table.sort(eggs, function(a, b) return a.dist < b.dist end)
+
+    return eggs
+end
+
+-- ────────────────────────────────────────────────────────────
+--  moveToPosition()
 -- ────────────────────────────────────────────────────────────
 local function moveToPosition(targetPos)
     humanoid:MoveTo(targetPos)
@@ -108,8 +196,7 @@ local function moveToPosition(targetPos)
         end
     end)
     while conn.Connected do task.wait() end
-    local reached = (rootPart.Position - targetPos).Magnitude <= CFG.ArrivalDistance
-    return reached
+    return (rootPart.Position - targetPos).Magnitude <= CFG.ArrivalDistance
 end
 
 -- ════════════════════════════════════════════════════════════
@@ -121,7 +208,6 @@ gui.ResetOnSpawn   = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent         = player:WaitForChild("PlayerGui")
 
--- Tombol toggle utama
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size             = UDim2.new(0, 90, 0, 32)
 toggleBtn.Position         = UDim2.new(0, 12, 1, -120)
@@ -134,20 +220,16 @@ toggleBtn.Font             = Enum.Font.GothamBold
 toggleBtn.ZIndex           = 10
 toggleBtn.Parent           = gui
 
--- Panel utama (diperbesar sedikit buat tombol scan)
 local panel = Instance.new("Frame")
-panel.Size             = UDim2.new(0, 340, 0, 380)
-panel.Position         = UDim2.new(0, 12, 1, -510)
+panel.Size             = UDim2.new(0, 360, 0, 440)
+panel.Position         = UDim2.new(0, 12, 1, -580)
 panel.BackgroundColor3 = Color3.fromRGB(12, 12, 22)
 panel.BorderSizePixel  = 0
 panel.Visible          = false
 panel.ZIndex           = 9
 panel.Parent           = gui
-local panelStroke = Instance.new("UIStroke", panel)
-panelStroke.Color     = Color3.fromRGB(30, 100, 210)
-panelStroke.Thickness = 1
+Instance.new("UIStroke", panel).Color = Color3.fromRGB(30, 100, 210)
 
--- Header
 local header = Instance.new("Frame")
 header.Size             = UDim2.new(1, 0, 0, 30)
 header.BackgroundColor3 = Color3.fromRGB(30, 100, 210)
@@ -156,16 +238,16 @@ header.ZIndex           = 10
 header.Parent           = panel
 
 local headerLabel = Instance.new("TextLabel")
-headerLabel.Size               = UDim2.new(1, -36, 1, 0)
-headerLabel.Position           = UDim2.new(0, 8, 0, 0)
+headerLabel.Size           = UDim2.new(1, -36, 1, 0)
+headerLabel.Position       = UDim2.new(0, 8, 0, 0)
 headerLabel.BackgroundTransparency = 1
-headerLabel.Text               = "BOT MOVEMENT LOG"
-headerLabel.TextColor3         = Color3.new(1, 1, 1)
-headerLabel.TextSize           = 12
-headerLabel.Font               = Enum.Font.GothamBold
-headerLabel.TextXAlignment     = Enum.TextXAlignment.Left
-headerLabel.ZIndex             = 11
-headerLabel.Parent             = header
+headerLabel.Text           = "BOT MOVEMENT LOG"
+headerLabel.TextColor3     = Color3.new(1, 1, 1)
+headerLabel.TextSize       = 12
+headerLabel.Font           = Enum.Font.GothamBold
+headerLabel.TextXAlignment = Enum.TextXAlignment.Left
+headerLabel.ZIndex         = 11
+headerLabel.Parent         = header
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size               = UDim2.new(0, 30, 1, 0)
@@ -178,9 +260,8 @@ closeBtn.Font               = Enum.Font.GothamBold
 closeBtn.ZIndex             = 11
 closeBtn.Parent             = header
 
--- Scroll log
 local scroll = Instance.new("ScrollingFrame")
-scroll.Size                 = UDim2.new(1, -8, 1, -148)
+scroll.Size                 = UDim2.new(1, -8, 1, -210)
 scroll.Position             = UDim2.new(0, 4, 0, 32)
 scroll.BackgroundTransparency = 1
 scroll.BorderSizePixel      = 0
@@ -199,82 +280,135 @@ logPad.PaddingTop   = UDim.new(0, 4)
 logPad.PaddingLeft  = UDim.new(0, 4)
 logPad.PaddingRight = UDim.new(0, 4)
 
--- Panel bawah
+-- ── Bottom Panel ─────────────────────────────────────────────
 local bottomPanel = Instance.new("Frame")
-bottomPanel.Size             = UDim2.new(1, 0, 0, 145)
-bottomPanel.Position         = UDim2.new(0, 0, 1, -145)
+bottomPanel.Size             = UDim2.new(1, 0, 0, 208)
+bottomPanel.Position         = UDim2.new(0, 0, 1, -208)
 bottomPanel.BackgroundColor3 = Color3.fromRGB(18, 18, 34)
 bottomPanel.BorderSizePixel  = 0
 bottomPanel.ZIndex           = 10
 bottomPanel.Parent           = panel
+local bStroke = Instance.new("UIStroke", bottomPanel)
+bStroke.Color = Color3.fromRGB(30, 100, 210)
+bStroke.Thickness = 1
+bStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
-local bottomStroke = Instance.new("UIStroke", bottomPanel)
-bottomStroke.Color     = Color3.fromRGB(30, 100, 210)
-bottomStroke.Thickness = 1
-bottomStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+local bPad = Instance.new("UIPadding", bottomPanel)
+bPad.PaddingTop    = UDim.new(0, 8)
+bPad.PaddingBottom = UDim.new(0, 8)
+bPad.PaddingLeft   = UDim.new(0, 10)
+bPad.PaddingRight  = UDim.new(0, 10)
 
-local bottomPad = Instance.new("UIPadding", bottomPanel)
-bottomPad.PaddingTop    = UDim.new(0, 8)
-bottomPad.PaddingBottom = UDim.new(0, 8)
-bottomPad.PaddingLeft   = UDim.new(0, 10)
-bottomPad.PaddingRight  = UDim.new(0, 10)
+local bLayout = Instance.new("UIListLayout", bottomPanel)
+bLayout.FillDirection = Enum.FillDirection.Vertical
+bLayout.Padding       = UDim.new(0, 6)
+bLayout.SortOrder     = Enum.SortOrder.LayoutOrder
 
-local bottomLayout = Instance.new("UIListLayout", bottomPanel)
-bottomLayout.FillDirection  = Enum.FillDirection.Vertical
-bottomLayout.Padding        = UDim.new(0, 6)
-bottomLayout.SortOrder      = Enum.SortOrder.LayoutOrder
-
--- Label info Base
+-- Status labels
 local baseLabel = Instance.new("TextLabel")
-baseLabel.LayoutOrder         = 1
-baseLabel.Size                = UDim2.new(1, 0, 0, 18)
+baseLabel.LayoutOrder = 1
+baseLabel.Size        = UDim2.new(1, 0, 0, 16)
 baseLabel.BackgroundTransparency = 1
-baseLabel.Text                = "Base: belum diset"
-baseLabel.TextColor3          = Color3.fromRGB(120, 160, 255)
-baseLabel.TextSize            = 11
-baseLabel.Font                = Enum.Font.Code
-baseLabel.TextXAlignment      = Enum.TextXAlignment.Left
-baseLabel.ZIndex              = 11
-baseLabel.Parent              = bottomPanel
+baseLabel.Text        = "Base: belum diset"
+baseLabel.TextColor3  = Color3.fromRGB(120, 160, 255)
+baseLabel.TextSize    = 11
+baseLabel.Font        = Enum.Font.Code
+baseLabel.TextXAlignment = Enum.TextXAlignment.Left
+baseLabel.ZIndex      = 11
+baseLabel.Parent      = bottomPanel
 
--- Tombol Scan Workspace (BARU)
+local territoryLabel = Instance.new("TextLabel")
+territoryLabel.LayoutOrder = 2
+territoryLabel.Size        = UDim2.new(1, 0, 0, 16)
+territoryLabel.BackgroundTransparency = 1
+territoryLabel.Text        = "Mulai dari territory: #1 (terdekat)"
+territoryLabel.TextColor3  = Color3.fromRGB(200, 160, 255)
+territoryLabel.TextSize    = 11
+territoryLabel.Font        = Enum.Font.Code
+territoryLabel.TextXAlignment = Enum.TextXAlignment.Left
+territoryLabel.ZIndex      = 11
+territoryLabel.Parent      = bottomPanel
+
+-- Territory selector (- / N / +)
+local selectorFrame = Instance.new("Frame")
+selectorFrame.LayoutOrder = 3
+selectorFrame.Size        = UDim2.new(1, 0, 0, 28)
+selectorFrame.BackgroundTransparency = 1
+selectorFrame.ZIndex      = 11
+selectorFrame.Parent      = bottomPanel
+
+local minusBtn = Instance.new("TextButton")
+minusBtn.Size             = UDim2.new(0, 28, 1, 0)
+minusBtn.Position         = UDim2.new(0, 0, 0, 0)
+minusBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
+minusBtn.BorderSizePixel  = 0
+minusBtn.Text             = "−"
+minusBtn.TextColor3       = Color3.new(1, 1, 1)
+minusBtn.TextSize         = 16
+minusBtn.Font             = Enum.Font.GothamBold
+minusBtn.ZIndex           = 12
+minusBtn.Parent           = selectorFrame
+
+local territoryNumLabel = Instance.new("TextLabel")
+territoryNumLabel.Size    = UDim2.new(1, -60, 1, 0)
+territoryNumLabel.Position = UDim2.new(0, 32, 0, 0)
+territoryNumLabel.BackgroundColor3 = Color3.fromRGB(30, 20, 50)
+territoryNumLabel.BorderSizePixel  = 0
+territoryNumLabel.Text    = "Territory #1"
+territoryNumLabel.TextColor3 = Color3.fromRGB(200, 160, 255)
+territoryNumLabel.TextSize   = 12
+territoryNumLabel.Font       = Enum.Font.GothamBold
+territoryNumLabel.ZIndex     = 12
+territoryNumLabel.Parent     = selectorFrame
+
+local plusBtn = Instance.new("TextButton")
+plusBtn.Size             = UDim2.new(0, 28, 1, 0)
+plusBtn.Position         = UDim2.new(1, -28, 0, 0)
+plusBtn.BackgroundColor3 = Color3.fromRGB(20, 80, 30)
+plusBtn.BorderSizePixel  = 0
+plusBtn.Text             = "+"
+plusBtn.TextColor3       = Color3.new(1, 1, 1)
+plusBtn.TextSize         = 16
+plusBtn.Font             = Enum.Font.GothamBold
+plusBtn.ZIndex           = 12
+plusBtn.Parent           = selectorFrame
+
+-- Scan + Set Base + Start
 local scanBtn = Instance.new("TextButton")
-scanBtn.LayoutOrder         = 2
-scanBtn.Size                = UDim2.new(1, 0, 0, 26)
-scanBtn.BackgroundColor3    = Color3.fromRGB(80, 40, 120)
-scanBtn.BorderSizePixel     = 0
-scanBtn.Text                = "🔍 Scan Workspace (cari nama supply)"
-scanBtn.TextColor3          = Color3.new(1, 1, 1)
-scanBtn.TextSize            = 11
-scanBtn.Font                = Enum.Font.GothamBold
-scanBtn.ZIndex              = 11
-scanBtn.Parent              = bottomPanel
+scanBtn.LayoutOrder       = 4
+scanBtn.Size              = UDim2.new(1, 0, 0, 24)
+scanBtn.BackgroundColor3  = Color3.fromRGB(80, 40, 120)
+scanBtn.BorderSizePixel   = 0
+scanBtn.Text              = "🔍 Scan (lihat territory & egg)"
+scanBtn.TextColor3        = Color3.new(1, 1, 1)
+scanBtn.TextSize          = 11
+scanBtn.Font              = Enum.Font.GothamBold
+scanBtn.ZIndex            = 11
+scanBtn.Parent            = bottomPanel
 
--- Tombol Set Base
 local setBaseBtn = Instance.new("TextButton")
-setBaseBtn.LayoutOrder         = 3
-setBaseBtn.Size                = UDim2.new(1, 0, 0, 26)
-setBaseBtn.BackgroundColor3    = Color3.fromRGB(30, 80, 160)
-setBaseBtn.BorderSizePixel     = 0
-setBaseBtn.Text                = "Set Base  (posisi sekarang)"
-setBaseBtn.TextColor3          = Color3.new(1, 1, 1)
-setBaseBtn.TextSize            = 12
-setBaseBtn.Font                = Enum.Font.GothamBold
-setBaseBtn.ZIndex              = 11
-setBaseBtn.Parent              = bottomPanel
+setBaseBtn.LayoutOrder    = 5
+setBaseBtn.Size           = UDim2.new(1, 0, 0, 24)
+setBaseBtn.BackgroundColor3 = Color3.fromRGB(30, 80, 160)
+setBaseBtn.BorderSizePixel  = 0
+setBaseBtn.Text           = "Set Base (posisi sekarang)"
+setBaseBtn.TextColor3     = Color3.new(1, 1, 1)
+setBaseBtn.TextSize       = 12
+setBaseBtn.Font           = Enum.Font.GothamBold
+setBaseBtn.ZIndex         = 11
+setBaseBtn.Parent         = bottomPanel
 
--- Tombol Start / Stop
 local startBtn = Instance.new("TextButton")
-startBtn.LayoutOrder         = 4
-startBtn.Size                = UDim2.new(1, 0, 0, 26)
-startBtn.BackgroundColor3    = Color3.fromRGB(30, 100, 210)
-startBtn.BorderSizePixel     = 0
-startBtn.Text                = "Start Auto Collect"
-startBtn.TextColor3          = Color3.new(1, 1, 1)
-startBtn.TextSize            = 12
-startBtn.Font                = Enum.Font.GothamBold
-startBtn.ZIndex              = 11
-startBtn.Parent              = bottomPanel
+startBtn.LayoutOrder      = 6
+startBtn.Size             = UDim2.new(1, 0, 0, 24)
+startBtn.BackgroundColor3 = Color3.fromRGB(30, 100, 210)
+startBtn.BorderSizePixel  = 0
+startBtn.Text             = "Start Auto Collect"
+startBtn.TextColor3       = Color3.new(1, 1, 1)
+startBtn.TextSize         = 12
+startBtn.Font             = Enum.Font.GothamBold
+startBtn.ZIndex           = 11
+startBtn.Parent           = bottomPanel
 
 -- ════════════════════════════════════════════════════════════
 --  LOG HELPER
@@ -301,64 +435,67 @@ local function pushLog(msg, color)
 end
 
 -- ════════════════════════════════════════════════════════════
---  WORKSPACE SCANNER — print semua nama object unik di Workspace
+--  TERRITORY SELECTOR LOGIC
 -- ════════════════════════════════════════════════════════════
-local function scanWorkspace()
-    pushLog("── SCAN MULAI ──", Color3.fromRGB(200, 150, 255))
+local function updateTerritoryLabel()
+    local n = CFG.StartFromTerritory
+    territoryNumLabel.Text = string.format("Territory #%d", n)
+    territoryLabel.Text    = string.format("Mulai dari territory: #%d", n)
+end
 
-    -- Kumpulkan nama unik + jumlahnya
-    local counts = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        -- Skip internal Roblox stuff
-        local skip = false
-        local parent = obj.Parent
-        while parent do
-            if parent == character then skip = true; break end
-            parent = parent.Parent
-        end
-        if not skip then
-            local n = obj.Name
-            counts[n] = (counts[n] or 0) + 1
-        end
+minusBtn.MouseButton1Click:Connect(function()
+    if CFG.StartFromTerritory > 1 then
+        CFG.StartFromTerritory -= 1
+        updateTerritoryLabel()
+    end
+end)
+
+plusBtn.MouseButton1Click:Connect(function()
+    CFG.StartFromTerritory += 1
+    updateTerritoryLabel()
+end)
+
+-- ════════════════════════════════════════════════════════════
+--  SCAN — preview territory & egg yang akan diambil
+-- ════════════════════════════════════════════════════════════
+local function doScan()
+    if not basePosition then
+        pushLog("Set Base dulu sebelum scan!", Color3.fromRGB(255, 100, 100))
+        return
     end
 
-    -- Sort by count descending
-    local list = {}
-    for name, count in pairs(counts) do
-        table.insert(list, { name = name, count = count })
+    pushLog("── SCAN TERRITORY ──", Color3.fromRGB(200, 150, 255))
+    local territories = detectTerritories(basePosition)
+
+    if #territories == 0 then
+        pushLog("Tidak ada territory/binatang ditemukan.", Color3.fromRGB(255, 180, 60))
+        pushLog("Cek CFG.AnimalNames & AnimalPartial!", Color3.fromRGB(255, 180, 60))
+        return
     end
-    table.sort(list, function(a, b) return a.count > b.count end)
 
-    -- Print top 40 (biar log ga overflow)
-    local shown = 0
-    for _, entry in ipairs(list) do
-        if shown >= 40 then
-            pushLog("... (truncated, max 40)", Color3.fromRGB(150, 150, 150))
-            break
+    for i, t in ipairs(territories) do
+        local skipped = i < CFG.StartFromTerritory
+        local marker  = skipped and "[SKIP]" or "[AKTIF]"
+        local color   = skipped
+            and Color3.fromRGB(120, 120, 120)
+            or  Color3.fromRGB(100, 220, 130)
+
+        -- Cari egg di territory ini
+        local eggs = findEggsInTerritory(t.position)
+        pushLog(string.format("%s T#%d — %s (%.0f stud dari base) — %d egg",
+            marker, i, t.name, t.distance, #eggs), color)
+
+        -- Detail egg kalau aktif
+        if not skipped then
+            for j, e in ipairs(eggs) do
+                pushLog(string.format("   Egg #%d: %s (%.0f stud dari binatang)",
+                    j, e.name, e.dist),
+                    Color3.fromRGB(255, 220, 100))
+            end
         end
-        -- Highlight kalau kelihatan kayak item/collectible
-        local nameLow = entry.name:lower()
-        local isInteresting = nameLow:find("egg") or nameLow:find("coin")
-            or nameLow:find("gem") or nameLow:find("crystal")
-            or nameLow:find("supply") or nameLow:find("item")
-            or nameLow:find("collect") or nameLow:find("token")
-            or nameLow:find("pickup") or nameLow:find("drop")
-            or nameLow:find("reward") or nameLow:find("star")
-            or nameLow:find("loot") or nameLow:find("ore")
-            or nameLow:find("wood") or nameLow:find("stone")
-            or nameLow:find("resource") or nameLow:find("fruit")
-            or nameLow:find("berry") or nameLow:find("fish")
-
-        local color = isInteresting
-            and Color3.fromRGB(100, 255, 150)   -- hijau = mungkin supply
-            or  Color3.fromRGB(140, 140, 160)   -- abu = biasa
-
-        pushLog(string.format("[%dx] %s", entry.count, entry.name), color)
-        shown += 1
     end
 
     pushLog("── SCAN SELESAI ──", Color3.fromRGB(200, 150, 255))
-    pushLog("Nama hijau = kandidat supply!", Color3.fromRGB(100, 255, 150))
 end
 
 -- ════════════════════════════════════════════════════════════
@@ -373,32 +510,52 @@ local function runBot()
         end
 
         cycle += 1
-        pushLog(string.format("── Siklus #%d ──", cycle),
-                Color3.fromRGB(100, 160, 255))
+        pushLog(string.format("══ Siklus #%d ══", cycle), Color3.fromRGB(100, 160, 255))
 
-        -- ① Cari supply terdekat
-        local supplyPos, supplyName = findNearestSupply()
+        -- Deteksi territory setiap siklus (bisa berubah)
+        local territories = detectTerritories(basePosition)
 
-        if supplyPos then
-            pushLog(string.format('"%s" ditemukan (%.0f, %.0f, %.0f)',
-                supplyName, supplyPos.X, supplyPos.Y, supplyPos.Z))
-            pushLog(string.format('Menuju "%s"...', supplyName))
-            local ok = moveToPosition(supplyPos)
-            pushLog(ok and "Item diambil." or "Timeout ke item.",
-                    ok and Color3.fromRGB(100, 220, 130) or Color3.fromRGB(255, 180, 60))
+        if #territories == 0 then
+            pushLog("Tidak ada territory ditemukan!", Color3.fromRGB(255, 100, 100))
+            task.wait(2)
         else
-            pushLog("Tidak ada supply — langsung ke Base.",
-                    Color3.fromRGB(200, 180, 80))
-        end
+            local startN = CFG.StartFromTerritory
+            pushLog(string.format("Deteksi %d territory, mulai dari #%d",
+                #territories, startN), Color3.fromRGB(150, 150, 200))
 
-        -- ② Kembali ke Base
-        if basePosition then
-            pushLog("Kembali ke Base...")
-            local ok = moveToPosition(basePosition)
-            pushLog(ok and "Sampai Base — bongkar muatan." or "Timeout ke Base.",
+            -- Loop territory dari startN ke akhir
+            for i = startN, #territories do
+                if not botRunning then break end
+
+                local t = territories[i]
+                pushLog(string.format("→ Territory #%d: %s", i, t.name),
+                        Color3.fromRGB(180, 140, 255))
+
+                local eggs = findEggsInTerritory(t.position)
+
+                if #eggs == 0 then
+                    pushLog(string.format("  Tidak ada egg di T#%d, skip.", i),
+                            Color3.fromRGB(200, 180, 80))
+                else
+                    -- Ambil semua egg di territory ini
+                    for j, egg in ipairs(eggs) do
+                        if not botRunning then break end
+                        pushLog(string.format("  Egg #%d/%d: menuju (%.0f,%.0f,%.0f)",
+                            j, #eggs, egg.position.X, egg.position.Y, egg.position.Z))
+                        local ok = moveToPosition(egg.position)
+                        pushLog(ok and "  ✓ Egg diambil." or "  ✗ Timeout.",
+                            ok and Color3.fromRGB(100, 220, 130) or Color3.fromRGB(255, 180, 60))
+                    end
+                end
+            end
+
+            -- Kembali ke base
+            if botRunning and basePosition then
+                pushLog("Kembali ke Base...", Color3.fromRGB(160, 160, 255))
+                local ok = moveToPosition(basePosition)
+                pushLog(ok and "✓ Sampai Base — bongkar muatan." or "✗ Timeout ke Base.",
                     ok and Color3.fromRGB(100, 220, 130) or Color3.fromRGB(255, 180, 60))
-        else
-            pushLog("Base belum diset!", Color3.fromRGB(255, 100, 100))
+            end
         end
 
         task.wait(CFG.CycleDelay)
@@ -413,7 +570,6 @@ end
 -- ════════════════════════════════════════════════════════════
 --  KONEKSI TOMBOL
 -- ════════════════════════════════════════════════════════════
-
 local isOpen = false
 toggleBtn.MouseButton1Click:Connect(function()
     isOpen        = not isOpen
@@ -429,12 +585,10 @@ closeBtn.MouseButton1Click:Connect(function()
     toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 100, 210)
 end)
 
--- Scan Workspace
 scanBtn.MouseButton1Click:Connect(function()
-    task.spawn(scanWorkspace)
+    task.spawn(doScan)
 end)
 
--- Set Base
 setBaseBtn.MouseButton1Click:Connect(function()
     basePosition = rootPart.Position
     local p = basePosition
@@ -446,7 +600,6 @@ setBaseBtn.MouseButton1Click:Connect(function()
             Color3.fromRGB(100, 220, 130))
 end)
 
--- Start / Stop
 startBtn.MouseButton1Click:Connect(function()
     if botRunning then
         botRunning = false
@@ -458,11 +611,12 @@ startBtn.MouseButton1Click:Connect(function()
         botRunning = true
         startBtn.Text             = "Stop Bot"
         startBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-        pushLog("Bot dimulai!", Color3.fromRGB(100, 220, 130))
+        pushLog(string.format("Bot dimulai! (mulai dari territory #%d)",
+            CFG.StartFromTerritory), Color3.fromRGB(100, 220, 130))
         task.spawn(runBot)
     end
 end)
 
 -- Log awal
-pushLog("Siap. Klik 'Scan Workspace' dulu buat cari nama supply.")
-pushLog("Nama hijau di hasil scan = kandidat supply.")
+pushLog("Siap. Set Base → Scan → pilih territory → Start.")
+pushLog("Territory #1 = terdekat dari Base.")

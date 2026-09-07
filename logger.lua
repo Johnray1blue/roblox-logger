@@ -177,17 +177,30 @@ local function hookRemote(remote, path)
 end
 
 local function hookAll()
-    local networking = RS:FindFirstChild("Packages")
-        and RS.Packages:FindFirstChild("Networking")
-        and RS.Packages.Networking:FindFirstChild("RE")
+    -- Cari folder RE secara rekursif, ga hardcode path
+    local networking = nil
+    for _, obj in ipairs(RS:GetDescendants()) do
+        if obj.Name == "RE" and obj:IsA("Folder") then
+            if obj:FindFirstChild("EggWorld") then
+                networking = obj
+                break
+            end
+        end
+    end
 
     if not networking then
-        log("❌ Packages/Networking/RE tidak ditemukan!", Color3.fromRGB(255,80,80))
+        log("❌ RE/EggWorld tidak ditemukan! Cari manual:", Color3.fromRGB(255,80,80))
+        for _, obj in ipairs(RS:GetDescendants()) do
+            if obj:IsA("RemoteEvent") and obj.Name:lower():find("egg") then
+                log("  → " .. obj:GetFullName(), Color3.fromRGB(255,180,60))
+            end
+        end
         return
     end
 
+    log("✅ RE ditemukan: " .. networking:GetFullName(), Color3.fromRGB(100,255,150))
+
     local count = 0
-    -- Hook semua subfolder yang relevan
     for _, folder in ipairs(networking:GetChildren()) do
         local folderName = folder.Name
         local isTarget = folderName == "EggWorld"
@@ -197,7 +210,6 @@ local function hookAll()
             or folderName == "PenRoster"
             or folderName == "ProfileMirror"
             or folderName == "Homestead"
-
         if isTarget then
             for _, remote in ipairs(folder:GetDescendants()) do
                 if remote:IsA("RemoteEvent") then

@@ -113,7 +113,8 @@ end
 local btnScanWS       = makeBtn("📦 Scan Workspace (nama object unik)", Color3.fromRGB(40,80,160), 1)
 local btnScanRemotes  = makeBtn("📡 Scan Remotes (ReplicatedStorage)", Color3.fromRGB(80,40,140), 2)
 local btnWatchRemotes = makeBtn("👁 Watch Remotes LIVE (on/off)",       Color3.fromRGB(100,50,30), 3)
-local btnClear        = makeBtn("🗑 Clear Log",                          Color3.fromRGB(40,40,40),  4)
+local btnCopy         = makeBtn("📋 Copy All Log",                       Color3.fromRGB(20,80,50),  4)
+local btnClear        = makeBtn("🗑 Clear Log",                          Color3.fromRGB(40,40,40),  5)
 
 -- ════════════════════════════════════════════════════════════
 --  LOG HELPER
@@ -347,6 +348,36 @@ btnScanRemotes.MouseButton1Click:Connect(function() task.spawn(scanRemotes)   en
 btnWatchRemotes.MouseButton1Click:Connect(function()
     if watchActive then stopWatch() else startWatch() end
 end)
+btnCopy.MouseButton1Click:Connect(function()
+    -- Kumpulkan semua teks dari log labels, urut by LayoutOrder
+    local labels = {}
+    for _, c in ipairs(scroll:GetChildren()) do
+        if c:IsA("TextLabel") then
+            table.insert(labels, c)
+        end
+    end
+    table.sort(labels, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+
+    local lines = {}
+    for _, lbl in ipairs(labels) do
+        table.insert(lines, lbl.Text)
+    end
+
+    local fullText = table.concat(lines, "\n")
+
+    -- Copy ke clipboard
+    setclipboard(fullText)
+
+    -- Feedback visual
+    local prev = btnCopy.Text
+    btnCopy.Text             = "✅ Copied!"
+    btnCopy.BackgroundColor3 = Color3.fromRGB(10, 120, 60)
+    task.delay(1.5, function()
+        btnCopy.Text             = prev
+        btnCopy.BackgroundColor3 = Color3.fromRGB(20, 80, 50)
+    end)
+end)
+
 btnClear.MouseButton1Click:Connect(function()
     for _, c in ipairs(scroll:GetChildren()) do
         if c:IsA("TextLabel") then c:Destroy() end

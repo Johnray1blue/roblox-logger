@@ -1,6 +1,5 @@
 -- ============================================================
 --  EggWatcher.lua — LocalScript → StarterPlayerScripts
---  Fokus: intercept semua EggWorld + Haul remote args
 -- ============================================================
 
 local Players = game:GetService("Players")
@@ -11,22 +10,23 @@ local gui     = Instance.new("ScreenGui")
 gui.Name = "EggWatcher"; gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- GUI sederhana
+-- Toggle button — pojok kanan bawah, kecil
 local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size             = UDim2.new(0, 90, 0, 28)
-toggleBtn.Position         = UDim2.new(0, 8, 1, -68)
+toggleBtn.Size             = UDim2.new(0, 70, 0, 22)
+toggleBtn.Position         = UDim2.new(1, -78, 1, -30)
 toggleBtn.BackgroundColor3 = Color3.fromRGB(20, 100, 50)
 toggleBtn.BorderSizePixel  = 0
-toggleBtn.Text             = "EGG LOG"
+toggleBtn.Text             = "🥚 LOG"
 toggleBtn.TextColor3       = Color3.new(1,1,1)
-toggleBtn.TextSize         = 12
+toggleBtn.TextSize         = 11
 toggleBtn.Font             = Enum.Font.GothamBold
 toggleBtn.ZIndex           = 10
 toggleBtn.Parent           = gui
 
+-- Panel — hidden by default, hook jalan di background
 local panel = Instance.new("Frame")
 panel.Size             = UDim2.new(0, 460, 0, 420)
-panel.Position         = UDim2.new(0, 8, 1, -500)
+panel.Position         = UDim2.new(1, -474, 1, -460)
 panel.BackgroundColor3 = Color3.fromRGB(6, 14, 10)
 panel.BorderSizePixel  = 0
 panel.Visible          = false
@@ -72,7 +72,6 @@ lp.PaddingTop = UDim.new(0,3)
 lp.PaddingLeft = UDim.new(0,4)
 lp.PaddingRight = UDim.new(0,4)
 
--- Bottom buttons
 local bRow = Instance.new("Frame")
 bRow.Size = UDim2.new(1,0,0,32)
 bRow.Position = UDim2.new(0,0,1,-32)
@@ -120,7 +119,7 @@ local function log(msg, color)
     task.defer(function() scroll.CanvasPosition = Vector2.new(0, math.huge) end)
 end
 
--- ── DEEP DUMP — rekursif dump table/value ────────────────────
+-- ── DEEP DUMP ────────────────────────────────────────────────
 local function deepDump(val, depth)
     depth = depth or 0
     if depth > 3 then return "..." end
@@ -154,15 +153,7 @@ end
 -- ── HOOK ─────────────────────────────────────────────────────
 local conns = {}
 
-local TARGET_PATHS = {
-    "Packages/Networking/RE/EggWorld",
-    "Packages/Networking/RE/Haul",
-    "Packages/Networking/RE/Payouts",
-    "Packages/Networking/RE/RewardScreen",
-    "Packages/Networking/RE/PenRoster",  -- dari log sebelumnya
-}
-
-local function hookRemote(remote, path)
+local function hookRemote(remote, folderName)
     local conn = remote.OnClientEvent:Connect(function(...)
         local args = { ... }
         local parts = {}
@@ -170,25 +161,24 @@ local function hookRemote(remote, path)
             table.insert(parts, string.format("[%d]%s", i, deepDump(a)))
         end
         local argStr = #parts > 0 and table.concat(parts, "  ") or "(no args)"
-        log(string.format("🟢 %s/%s", path, remote.Name), Color3.fromRGB(80, 255, 140))
+        log(string.format("🟢 %s/%s", folderName, remote.Name), Color3.fromRGB(80, 255, 140))
         log(string.format("   └─ %s", argStr), Color3.fromRGB(200, 255, 200))
     end)
     table.insert(conns, conn)
 end
 
 local function hookAll()
-    -- Cari folder RE secara rekursif, ga hardcode path
-    local networking = nil
+    -- Cari RE folder tanpa hardcode path
+    local reFolder = nil
     for _, obj in ipairs(RS:GetDescendants()) do
         if obj.Name == "RE" and obj:FindFirstChild("EggWorld") then
-                networking = obj
-                break
-            end
+            reFolder = obj
+            break
         end
     end
 
-    if not networking then
-        log("❌ RE/EggWorld tidak ditemukan! Cari manual:", Color3.fromRGB(255,80,80))
+    if not reFolder then
+        log("❌ RE/EggWorld tidak ditemukan!", Color3.fromRGB(255,80,80))
         for _, obj in ipairs(RS:GetDescendants()) do
             if obj:IsA("RemoteEvent") and obj.Name:lower():find("egg") then
                 log("  → " .. obj:GetFullName(), Color3.fromRGB(255,180,60))
@@ -197,10 +187,10 @@ local function hookAll()
         return
     end
 
-    log("✅ RE ditemukan: " .. networking:GetFullName(), Color3.fromRGB(100,255,150))
+    log("✅ RE ditemukan: " .. reFolder:GetFullName(), Color3.fromRGB(100,255,150))
 
     local count = 0
-    for _, folder in ipairs(networking:GetChildren()) do
+    for _, folder in ipairs(reFolder:GetChildren()) do
         local folderName = folder.Name
         local isTarget = folderName == "EggWorld"
             or folderName == "Haul"
@@ -219,13 +209,11 @@ local function hookAll()
         end
     end
 
-    log(string.format("✅ Hooking %d remote (EggWorld + Haul + Payouts + ...)", count),
-        Color3.fromRGB(100, 255, 150))
-    log("Sekarang: deketin nest → ambil egg manual → balik base",
-        Color3.fromRGB(200, 200, 100))
+    log(string.format("✅ Hooking %d remote", count), Color3.fromRGB(100, 255, 150))
+    log("Sekarang: ambil egg manual → balik base → copy log", Color3.fromRGB(200, 200, 100))
 end
 
--- ── COPY ALL ─────────────────────────────────────────────────
+-- ── BUTTONS ──────────────────────────────────────────────────
 copyBtn.MouseButton1Click:Connect(function()
     local labels = {}
     for _, c in ipairs(scroll:GetChildren()) do
@@ -251,15 +239,16 @@ clearBtn.MouseButton1Click:Connect(function()
     logIdx = 0
 end)
 
--- Toggle
 local isOpen = false
 toggleBtn.MouseButton1Click:Connect(function()
-    isOpen = not isOpen; panel.Visible = isOpen
+    isOpen = not isOpen
+    panel.Visible = isOpen
 end)
 xBtn.MouseButton1Click:Connect(function()
-    isOpen = false; panel.Visible = false
+    isOpen = false
+    panel.Visible = false
 end)
 
--- Auto-start hook
+-- ── START ─────────────────────────────────────────────────────
 hookAll()
 log("Watcher aktif. Lakukan aksi di game sekarang.")

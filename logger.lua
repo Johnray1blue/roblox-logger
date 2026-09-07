@@ -1,361 +1,383 @@
--- Universal RemoteEvent Logger with GUI (ICON FIXED)
--- LocalScript → StarterPlayerScripts
--- Fix: FAB pakai ImageButton + rbxassetid, fallback ke TextButton tanpa emoji
+-- ============================================================
+--  BotMovement.lua  —  LocalScript / Script (server-side bot)
+--  Modul pergerakan bot dengan dynamic supply finder
+-- ============================================================
 
-local Players           = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players    = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
-local player    = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+-- ────────────────────────────────────────────────────────────
+--  KONFIGURASI
+-- ────────────────────────────────────────────────────────────
+local CFG = {
+    -- Ganti ini sesuai nama bot/karakter kamu
+    BotName         = "Bot",
 
--- ════════════════════════════════════════════════════════════
---  SCREEN GUI
--- ════════════════════════════════════════════════════════════
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name           = "RemoteLogger"
-screenGui.ResetOnSpawn   = false
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent         = playerGui
+    -- Posisi Base (tempat bongkar muatan) — sesuaikan
+    BasePosition    = Vector3.new(0, 3, 0),
 
--- ════════════════════════════════════════════════════════════
---  FAB TOMBOL TOGGLE  (ImageButton — icon pasti muncul)
--- ════════════════════════════════════════════════════════════
--- Kita pakai ImageButton dengan icon dari Roblox asset library.
--- rbxassetid://3926307971 = icon "list/log" (Roblox Studio icon sheet)
--- Jika ingin ganti icon, cukup ubah ImageRectOffset & ImageRectSize.
+    -- Jarak dianggap "sudah sampai" ke target / base
+    ArrivalDistance = 5,
 
-local fab = Instance.new("ImageButton")
-fab.Size                  = UDim2.new(0, 56, 0, 56)
-fab.Position              = UDim2.new(0.5, -28, 1, -120)
-fab.BackgroundColor3      = Color3.fromRGB(26, 26, 46)
-fab.BorderSizePixel       = 0
-fab.ZIndex                = 10
-fab.Image                 = "rbxassetid://3926307971"  -- Roblox UI icon sheet
-fab.ImageRectOffset       = Vector2.new(4, 804)        -- icon "view list"
-fab.ImageRectSize         = Vector2.new(36, 36)
-fab.ImageColor3           = Color3.fromRGB(74, 222, 128)
-fab.ScaleType             = Enum.ScaleType.Fit
-fab.Parent                = screenGui
-Instance.new("UICorner", fab).CornerRadius = UDim.new(1, 0)  -- bulat sempurna
+    -- Nama supply yang dicari
+    SupplyNames     = { "Egg" },
+    SupplyTokenName = "EggToken",
 
-local fabStroke = Instance.new("UIStroke", fab)
-fabStroke.Color     = Color3.fromRGB(74, 222, 128)
-fabStroke.Thickness = 2
+    -- Delay antar siklus (detik)
+    CycleDelay      = 0.5,
 
--- Label kecil di bawah FAB supaya user tau fungsinya
-local fabLabel = Instance.new("TextLabel")
-fabLabel.Size               = UDim2.new(0, 80, 0, 18)
-fabLabel.Position           = UDim2.new(0.5, -40, 1, -58)
-fabLabel.BackgroundTransparency = 1
-fabLabel.Text               = "LOGGER"
-fabLabel.TextColor3         = Color3.fromRGB(74, 222, 128)
-fabLabel.TextSize           = 11
-fabLabel.Font               = Enum.Font.GothamBold
-fabLabel.TextXAlignment     = Enum.TextXAlignment.Center
-fabLabel.ZIndex             = 10
-fabLabel.Parent             = screenGui
+    -- Timeout MoveTo (detik) sebelum retry
+    MoveTimeout     = 8,
+}
 
--- ════════════════════════════════════════════════════════════
---  TOMBOL COPY ALL (floating, selalu kelihatan)
--- ════════════════════════════════════════════════════════════
-local copyFloating = Instance.new("ImageButton")
-copyFloating.Size             = UDim2.new(0, 44, 0, 44)
-copyFloating.Position         = UDim2.new(0.5, 36, 1, -120)   -- kanan FAB
-copyFloating.BackgroundColor3 = Color3.fromRGB(58, 180, 100)
-copyFloating.BorderSizePixel  = 0
-copyFloating.ZIndex           = 10
-copyFloating.Image            = "rbxassetid://3926307971"
-copyFloating.ImageRectOffset  = Vector2.new(324, 604)         -- icon "copy/clipboard"
-copyFloating.ImageRectSize    = Vector2.new(36, 36)
-copyFloating.ImageColor3      = Color3.fromRGB(15, 15, 26)
-copyFloating.ScaleType        = Enum.ScaleType.Fit
-copyFloating.Parent           = screenGui
-Instance.new("UICorner", copyFloating).CornerRadius = UDim.new(1, 0)
+-- ────────────────────────────────────────────────────────────
+--  REFERENSI BOT
+-- ────────────────────────────────────────────────────────────
+-- Jika dijalankan sebagai LocalScript, ambil karakter player.
+-- Jika Script biasa (NPC), ganti baris ini dengan referensi NPC-mu.
+local character, humanoid, rootPart
 
-local copyLabel = Instance.new("TextLabel")
-copyLabel.Size               = UDim2.new(0, 56, 0, 18)
-copyLabel.Position           = UDim2.new(0.5, 22, 1, -58)
-copyLabel.BackgroundTransparency = 1
-copyLabel.Text               = "COPY"
-copyLabel.TextColor3         = Color3.fromRGB(58, 180, 100)
-copyLabel.TextSize           = 11
-copyLabel.Font               = Enum.Font.GothamBold
-copyLabel.TextXAlignment     = Enum.TextXAlignment.Center
-copyLabel.ZIndex             = 10
-copyLabel.Parent             = screenGui
-
--- ════════════════════════════════════════════════════════════
---  PANEL UTAMA
--- ════════════════════════════════════════════════════════════
-local panel = Instance.new("Frame")
-panel.Name              = "Panel"
-panel.Size              = UDim2.new(0.95, 0, 0.65, 0)
-panel.Position          = UDim2.new(0.025, 0, 0.05, 0)
-panel.BackgroundColor3  = Color3.fromRGB(15, 15, 26)
-panel.BorderSizePixel   = 0
-panel.Visible           = false
-panel.ZIndex            = 9
-panel.Parent            = screenGui
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
-local panelStroke = Instance.new("UIStroke", panel)
-panelStroke.Color     = Color3.fromRGB(45, 45, 78)
-panelStroke.Thickness = 1
-
--- Header
-local header = Instance.new("Frame")
-header.Size             = UDim2.new(1, 0, 0, 44)
-header.BackgroundColor3 = Color3.fromRGB(26, 26, 46)
-header.BorderSizePixel  = 0
-header.ZIndex           = 10
-header.Parent           = panel
-Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
-
--- patch sudut bawah header agar tidak melengkung di bawah
-local headerFix = Instance.new("Frame")
-headerFix.Size            = UDim2.new(1, 0, 0, 12)
-headerFix.Position        = UDim2.new(0, 0, 1, -12)
-headerFix.BackgroundColor3 = Color3.fromRGB(26, 26, 46)
-headerFix.BorderSizePixel = 0
-headerFix.ZIndex          = 10
-headerFix.Parent          = header
-
--- Icon kecil di header (ImageLabel, bukan emoji)
-local headerIcon = Instance.new("ImageLabel")
-headerIcon.Size             = UDim2.new(0, 22, 0, 22)
-headerIcon.Position         = UDim2.new(0, 10, 0.5, -11)
-headerIcon.BackgroundTransparency = 1
-headerIcon.Image            = "rbxassetid://3926307971"
-headerIcon.ImageRectOffset  = Vector2.new(4, 804)
-headerIcon.ImageRectSize    = Vector2.new(36, 36)
-headerIcon.ImageColor3      = Color3.fromRGB(74, 222, 128)
-headerIcon.ZIndex           = 11
-headerIcon.Parent           = header
-
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size             = UDim2.new(1, -120, 1, 0)
-titleLabel.Position         = UDim2.new(0, 38, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text             = "REMOTE LOGGER"
-titleLabel.TextColor3       = Color3.fromRGB(74, 222, 128)
-titleLabel.TextSize         = 13
-titleLabel.Font             = Enum.Font.GothamBold
-titleLabel.TextXAlignment   = Enum.TextXAlignment.Left
-titleLabel.ZIndex           = 11
-titleLabel.Parent           = header
-
-local counterLabel = Instance.new("TextLabel")
-counterLabel.Size               = UDim2.new(0, 80, 1, 0)
-counterLabel.Position           = UDim2.new(1, -130, 0, 0)
-counterLabel.BackgroundTransparency = 1
-counterLabel.Text               = "0 log"
-counterLabel.TextColor3         = Color3.fromRGB(96, 96, 160)
-counterLabel.TextSize           = 11
-counterLabel.Font               = Enum.Font.Gotham
-counterLabel.TextXAlignment     = Enum.TextXAlignment.Right
-counterLabel.ZIndex             = 11
-counterLabel.Parent             = header
-
--- Tombol close di header (X teks, bukan emoji — pasti render)
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size               = UDim2.new(0, 36, 0, 30)
-closeBtn.Position           = UDim2.new(1, -42, 0.5, -15)
-closeBtn.BackgroundTransparency = 1
-closeBtn.Text               = "X"          -- huruf biasa, bukan emoji
-closeBtn.TextColor3         = Color3.fromRGB(200, 100, 100)
-closeBtn.TextSize           = 15
-closeBtn.Font               = Enum.Font.GothamBold
-closeBtn.ZIndex             = 11
-closeBtn.Parent             = header
-
--- ════════════════════════════════════════════════════════════
---  LOG AREA (ScrollingFrame)
--- ════════════════════════════════════════════════════════════
-local logArea = Instance.new("ScrollingFrame")
-logArea.Size                  = UDim2.new(1, -8, 1, -50)
-logArea.Position              = UDim2.new(0, 4, 0, 48)
-logArea.BackgroundTransparency = 1
-logArea.BorderSizePixel       = 0
-logArea.ScrollBarThickness    = 4
-logArea.ScrollBarImageColor3  = Color3.fromRGB(45, 45, 78)
-logArea.CanvasSize            = UDim2.new(0, 0, 0, 0)
-logArea.AutomaticCanvasSize   = Enum.AutomaticSize.Y
-logArea.ZIndex                = 10
-logArea.Parent                = panel
-
-local listLayout = Instance.new("UIListLayout", logArea)
-listLayout.Padding    = UDim.new(0, 4)
-listLayout.SortOrder  = Enum.SortOrder.LayoutOrder
-
-local logPad = Instance.new("UIPadding", logArea)
-logPad.PaddingTop    = UDim.new(0, 4)
-logPad.PaddingBottom = UDim.new(0, 4)
-
--- ════════════════════════════════════════════════════════════
---  SERIALIZER
--- ════════════════════════════════════════════════════════════
-local function serializeArg(arg, depth)
-    depth = depth or 0
-    local indent = string.rep("  ", depth)
-    if type(arg) == "table" then
-        local parts = {}
-        for k, v in pairs(arg) do
-            table.insert(parts, indent .. "  [" .. tostring(k) .. "] = " .. serializeArg(v, depth + 1))
-        end
-        return "{\n" .. table.concat(parts, ",\n") .. "\n" .. indent .. "}"
-    elseif typeof(arg) == "Instance" then
-        return "<" .. arg.ClassName .. ": '" .. arg.Name .. "'>"
-    elseif typeof(arg) == "Vector3" then
-        return string.format("Vector3(%.2f, %.2f, %.2f)", arg.X, arg.Y, arg.Z)
-    elseif typeof(arg) == "CFrame" then
-        local p = arg.Position
-        return string.format("CFrame(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
-    elseif typeof(arg) == "Color3" then
-        return string.format("Color3(%.2f, %.2f, %.2f)", arg.R, arg.G, arg.B)
-    elseif type(arg) == "string" then
-        return '"' .. arg .. '"'
+local function initBot()
+    -- Coba cari sebagai NPC di Workspace dulu
+    local npc = workspace:FindFirstChild(CFG.BotName)
+    if npc then
+        character = npc
     else
-        return tostring(arg)
-    end
-end
-
-local function formatArgs(args)
-    if #args == 0 then return "(no args)" end
-    local parts = {}
-    for i, v in ipairs(args) do
-        table.insert(parts, "Arg[" .. i .. "]: " .. serializeArg(v))
-    end
-    return table.concat(parts, "\n")
-end
-
--- ════════════════════════════════════════════════════════════
---  TAMBAH LOG ENTRY
--- ════════════════════════════════════════════════════════════
-local allLogs  = {}
-local logCount = 0
-
-local function addLogEntry(remoteName, argsText)
-    logCount += 1
-    local time     = os.date("%H:%M:%S")
-    local fullText = "[" .. time .. "] " .. remoteName .. "\n" .. argsText
-    table.insert(allLogs, fullText)
-    counterLabel.Text = logCount .. " log"
-
-    local entry = Instance.new("TextButton")
-    entry.Size            = UDim2.new(1, 0, 0, 0)
-    entry.AutomaticSize   = Enum.AutomaticSize.Y
-    entry.BackgroundColor3 = Color3.fromRGB(26, 26, 46)
-    entry.BorderSizePixel = 0
-    entry.TextTransparency = 1
-    entry.LayoutOrder     = logCount
-    entry.ZIndex          = 11
-    entry.Parent          = logArea
-    Instance.new("UICorner", entry).CornerRadius = UDim.new(0, 6)
-
-    local leftBar = Instance.new("Frame", entry)
-    leftBar.Size             = UDim2.new(0, 3, 1, 0)
-    leftBar.BackgroundColor3 = Color3.fromRGB(74, 222, 128)
-    leftBar.BorderSizePixel  = 0
-    leftBar.ZIndex           = 12
-
-    local textLabel = Instance.new("TextLabel", entry)
-    textLabel.Size              = UDim2.new(1, -14, 0, 0)
-    textLabel.Position          = UDim2.new(0, 10, 0, 6)
-    textLabel.AutomaticSize     = Enum.AutomaticSize.Y
-    textLabel.BackgroundTransparency = 1
-    textLabel.Text              = fullText
-    textLabel.TextColor3        = Color3.fromRGB(180, 200, 255)
-    textLabel.TextSize          = 11
-    textLabel.Font              = Enum.Font.Code
-    textLabel.TextXAlignment    = Enum.TextXAlignment.Left
-    textLabel.TextWrapped       = true
-    textLabel.ZIndex            = 12
-
-    local pad = Instance.new("UIPadding", entry)
-    pad.PaddingLeft   = UDim.new(0, 10)
-    pad.PaddingRight  = UDim.new(0, 6)
-    pad.PaddingTop    = UDim.new(0, 6)
-    pad.PaddingBottom = UDim.new(0, 6)
-
-    -- Klik entry = copy entry itu saja
-    entry.MouseButton1Click:Connect(function()
-        if setclipboard then
-            setclipboard(fullText)
-        end
-        textLabel.TextColor3 = Color3.fromRGB(74, 222, 128)
-        task.wait(0.5)
-        textLabel.TextColor3 = Color3.fromRGB(180, 200, 255)
-    end)
-
-    task.defer(function()
-        logArea.CanvasPosition = Vector2.new(0, logArea.AbsoluteCanvasSize.Y)
-    end)
-end
-
--- ════════════════════════════════════════════════════════════
---  HOOK REMOTE
--- ════════════════════════════════════════════════════════════
-local function hookRemote(remote)
-    remote.OnClientEvent:Connect(function(...)
-        addLogEntry(remote:GetFullName(), formatArgs({...}))
-    end)
-end
-
-local function scanAndHook(parent)
-    for _, obj in ipairs(parent:GetDescendants()) do
-        if obj:IsA("RemoteEvent") then
-            hookRemote(obj)
+        -- Fallback: pakai LocalPlayer
+        local player = Players.LocalPlayer
+        if player then
+            character = player.Character or player.CharacterAdded:Wait()
         end
     end
-    parent.DescendantAdded:Connect(function(obj)
-        if obj:IsA("RemoteEvent") then
-            task.wait(0.1)
-            hookRemote(obj)
-        end
-    end)
+
+    humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    rootPart = character and character:FindFirstChild("HumanoidRootPart")
+
+    return humanoid ~= nil and rootPart ~= nil
 end
 
--- ════════════════════════════════════════════════════════════
---  KONTROL TOMBOL
--- ════════════════════════════════════════════════════════════
-local isPanelOpen = false
+-- ────────────────────────────────────────────────────────────
+--  FUNGSI: findNearestSupply()
+--  Memindai workspace → cari model/part bernama 'Egg'
+--  atau yang punya anak 'EggToken', ukur jarak dari RootPart,
+--  kembalikan Vector3 posisi terdekat (atau nil jika tidak ada)
+-- ────────────────────────────────────────────────────────────
+local function findNearestSupply()
+    local nearest     = nil
+    local nearestDist = math.huge
+    local botPos      = rootPart.Position
 
-fab.MouseButton1Click:Connect(function()
-    isPanelOpen = not isPanelOpen
-    panel.Visible = isPanelOpen
-    -- Animasi sederhana: pulse warna border FAB
-    fabStroke.Color = isPanelOpen
-        and Color3.fromRGB(255, 255, 100)
-        or  Color3.fromRGB(74, 222, 128)
-end)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        local isSupply = false
+        local targetPos = nil
 
-closeBtn.MouseButton1Click:Connect(function()
-    isPanelOpen   = false
-    panel.Visible = false
-    fabStroke.Color = Color3.fromRGB(74, 222, 128)
-end)
+        -- Cek apakah nama object cocok dengan SupplyNames
+        for _, supplyName in ipairs(CFG.SupplyNames) do
+            if obj.Name == supplyName then
+                isSupply = true
+                break
+            end
+        end
 
-copyFloating.MouseButton1Click:Connect(function()
-    if #allLogs == 0 then
-        copyLabel.Text      = "KOSONG!"
-        copyLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        task.wait(1)
-        copyLabel.Text      = "COPY"
-        copyLabel.TextColor3 = Color3.fromRGB(58, 180, 100)
+        -- Cek apakah punya anak bernama EggToken
+        if not isSupply and obj:FindFirstChild(CFG.SupplyTokenName) then
+            isSupply = true
+        end
+
+        if isSupply then
+            -- Tentukan posisi: Model pakai PrimaryPart atau FindFirstChild("HumanoidRootPart")
+            -- Part langsung pakai .Position
+            if obj:IsA("Model") then
+                if obj.PrimaryPart then
+                    targetPos = obj.PrimaryPart.Position
+                else
+                    -- Fallback: cari part pertama di dalam model
+                    local anyPart = obj:FindFirstChildWhichIsA("BasePart")
+                    if anyPart then
+                        targetPos = anyPart.Position
+                    end
+                end
+            elseif obj:IsA("BasePart") then
+                targetPos = obj.Position
+            end
+
+            -- Hitung jarak dan bandingkan
+            if targetPos then
+                local dist = (botPos - targetPos).Magnitude
+                if dist < nearestDist then
+                    nearestDist = dist
+                    nearest     = targetPos
+                end
+            end
+        end
+    end
+
+    return nearest  -- Vector3 atau nil
+end
+
+-- ────────────────────────────────────────────────────────────
+--  HELPER: MoveTo dengan timeout
+--  Roblox Humanoid:MoveTo berhenti setelah 8 detik otomatis,
+--  tapi kita tambahkan kontrol manual supaya lebih responsif.
+-- ────────────────────────────────────────────────────────────
+local function moveToPosition(targetPos)
+    humanoid:MoveTo(targetPos)
+
+    local startTime = tick()
+    local reached   = false
+
+    -- Tunggu sampai sampai atau timeout
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        local dist = (rootPart.Position - targetPos).Magnitude
+        if dist <= CFG.ArrivalDistance then
+            reached = true
+            conn:Disconnect()
+        elseif tick() - startTime >= CFG.MoveTimeout then
+            -- Timeout — anggap gagal, lanjut siklus berikutnya
+            conn:Disconnect()
+        end
+    end)
+
+    -- Blok sampai koneksi selesai
+    while conn.Connected do
+        task.wait()
+    end
+
+    return reached
+end
+
+-- ────────────────────────────────────────────────────────────
+--  GUI LOGGER (kotak biru, bukan bulat — simple)
+-- ────────────────────────────────────────────────────────────
+local function buildGUI()
+    local player = Players.LocalPlayer
+    if not player then return nil end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name           = "BotMonitorGui"
+    gui.ResetOnSpawn   = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent         = player:WaitForChild("PlayerGui")
+
+    -- Tombol toggle — kotak biru solid, sudut persegi
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size             = UDim2.new(0, 90, 0, 32)
+    toggleBtn.Position         = UDim2.new(0, 12, 1, -120)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 100, 210)
+    toggleBtn.BorderSizePixel  = 0
+    toggleBtn.Text             = "BOT LOG"
+    toggleBtn.TextColor3       = Color3.new(1, 1, 1)
+    toggleBtn.TextSize         = 13
+    toggleBtn.Font             = Enum.Font.GothamBold
+    toggleBtn.ZIndex           = 10
+    toggleBtn.Parent           = gui
+
+    -- Panel log
+    local panel = Instance.new("Frame")
+    panel.Size             = UDim2.new(0, 340, 0, 260)
+    panel.Position         = UDim2.new(0, 12, 1, -390)
+    panel.BackgroundColor3 = Color3.fromRGB(12, 12, 22)
+    panel.BorderSizePixel  = 0
+    panel.Visible          = false
+    panel.ZIndex           = 9
+    panel.Parent           = gui
+
+    -- Garis border tipis
+    local stroke = Instance.new("UIStroke", panel)
+    stroke.Color     = Color3.fromRGB(30, 100, 210)
+    stroke.Thickness = 1
+
+    -- Header panel
+    local header = Instance.new("Frame")
+    header.Size             = UDim2.new(1, 0, 0, 30)
+    header.BackgroundColor3 = Color3.fromRGB(30, 100, 210)
+    header.BorderSizePixel  = 0
+    header.ZIndex           = 10
+    header.Parent           = panel
+
+    local headerLabel = Instance.new("TextLabel")
+    headerLabel.Size               = UDim2.new(1, -40, 1, 0)
+    headerLabel.Position           = UDim2.new(0, 8, 0, 0)
+    headerLabel.BackgroundTransparency = 1
+    headerLabel.Text               = "BOT MOVEMENT LOG"
+    headerLabel.TextColor3         = Color3.new(1, 1, 1)
+    headerLabel.TextSize           = 12
+    headerLabel.Font               = Enum.Font.GothamBold
+    headerLabel.TextXAlignment     = Enum.TextXAlignment.Left
+    headerLabel.ZIndex             = 11
+    headerLabel.Parent             = header
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size               = UDim2.new(0, 30, 1, 0)
+    closeBtn.Position           = UDim2.new(1, -30, 0, 0)
+    closeBtn.BackgroundTransparency = 1
+    closeBtn.Text               = "X"
+    closeBtn.TextColor3         = Color3.new(1, 1, 1)
+    closeBtn.TextSize           = 13
+    closeBtn.Font               = Enum.Font.GothamBold
+    closeBtn.ZIndex             = 11
+    closeBtn.Parent             = header
+
+    -- Scroll log
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size                 = UDim2.new(1, -8, 1, -36)
+    scroll.Position             = UDim2.new(0, 4, 0, 32)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel      = 0
+    scroll.ScrollBarThickness   = 3
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(30, 100, 210)
+    scroll.AutomaticCanvasSize  = Enum.AutomaticSize.Y
+    scroll.CanvasSize           = UDim2.new(0, 0, 0, 0)
+    scroll.ZIndex               = 10
+    scroll.Parent               = panel
+
+    local layout = Instance.new("UIListLayout", scroll)
+    layout.Padding   = UDim.new(0, 2)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local pad = Instance.new("UIPadding", scroll)
+    pad.PaddingTop    = UDim.new(0, 4)
+    pad.PaddingLeft   = UDim.new(0, 4)
+    pad.PaddingRight  = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 4)
+
+    -- Status bar bawah
+    local statusBar = Instance.new("TextLabel")
+    statusBar.Size               = UDim2.new(1, 0, 0, 22)
+    statusBar.Position           = UDim2.new(0, 0, 1, -22)
+    statusBar.BackgroundColor3   = Color3.fromRGB(20, 60, 140)
+    statusBar.BorderSizePixel    = 0
+    statusBar.Text               = "Status: Menunggu..."
+    statusBar.TextColor3         = Color3.fromRGB(180, 210, 255)
+    statusBar.TextSize           = 11
+    statusBar.Font               = Enum.Font.Code
+    statusBar.TextXAlignment     = Enum.TextXAlignment.Left
+    statusBar.ZIndex             = 11
+    statusBar.Parent             = panel
+
+    local statusPad = Instance.new("UIPadding", statusBar)
+    statusPad.PaddingLeft = UDim.new(0, 6)
+
+    -- Logika toggle
+    local isOpen  = false
+    local logIdx  = 0
+
+    toggleBtn.MouseButton1Click:Connect(function()
+        isOpen        = not isOpen
+        panel.Visible = isOpen
+        toggleBtn.BackgroundColor3 = isOpen
+            and Color3.fromRGB(20, 60, 140)
+            or  Color3.fromRGB(30, 100, 210)
+    end)
+
+    closeBtn.MouseButton1Click:Connect(function()
+        isOpen        = false
+        panel.Visible = false
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 100, 210)
+    end)
+
+    -- Fungsi log yang dikembalikan ke luar
+    local function pushLog(msg)
+        logIdx += 1
+        local lbl = Instance.new("TextLabel")
+        lbl.Size               = UDim2.new(1, 0, 0, 0)
+        lbl.AutomaticSize      = Enum.AutomaticSize.Y
+        lbl.BackgroundTransparency = 1
+        lbl.Text               = os.date("%H:%M:%S") .. "  " .. msg
+        lbl.TextColor3         = Color3.fromRGB(160, 200, 255)
+        lbl.TextSize           = 11
+        lbl.Font               = Enum.Font.Code
+        lbl.TextXAlignment     = Enum.TextXAlignment.Left
+        lbl.TextWrapped        = true
+        lbl.LayoutOrder        = logIdx
+        lbl.ZIndex             = 11
+        lbl.Parent             = scroll
+        task.defer(function()
+            scroll.CanvasPosition = Vector2.new(0, math.huge)
+        end)
+    end
+
+    local function setStatus(msg)
+        statusBar.Text = "Status: " .. msg
+    end
+
+    return pushLog, setStatus
+end
+
+-- ────────────────────────────────────────────────────────────
+--  MAIN LOOP
+-- ────────────────────────────────────────────────────────────
+local function main()
+    if not initBot() then
+        warn("[BotMovement] Tidak dapat menemukan bot/karakter.")
         return
     end
-    if setclipboard then
-        setclipboard(table.concat(allLogs, "\n---\n"))
-    end
-    copyLabel.Text      = "DONE!"
-    copyLabel.TextColor3 = Color3.fromRGB(255, 255, 100)
-    task.wait(1.5)
-    copyLabel.Text      = "COPY"
-    copyLabel.TextColor3 = Color3.fromRGB(58, 180, 100)
-end)
 
--- ════════════════════════════════════════════════════════════
---  START
--- ════════════════════════════════════════════════════════════
-task.wait(1)
-scanAndHook(ReplicatedStorage)
-scanAndHook(workspace)
+    local pushLog, setStatus = buildGUI()
+
+    -- Fallback jika GUI tidak tersedia (script server)
+    pushLog   = pushLog   or function(m) print("[BOT]", m) end
+    setStatus = setStatus or function(m) print("[STATUS]", m) end
+
+    pushLog("Bot siap. Base: " .. tostring(CFG.BasePosition))
+    pushLog("Mencari supply: " .. table.concat(CFG.SupplyNames, ", ")
+            .. " / token: " .. CFG.SupplyTokenName)
+
+    local cycle = 0
+
+    while task.wait(CFG.CycleDelay) do
+        -- Pastikan bot masih hidup
+        if humanoid.Health <= 0 then
+            setStatus("Bot mati — menunggu respawn...")
+            pushLog("Bot mati. Loop berhenti.")
+            break
+        end
+
+        cycle += 1
+        pushLog(string.format("── Siklus #%d ──", cycle))
+
+        -- ① Cari supply terdekat
+        setStatus("Memindai supply...")
+        local supplyPos = findNearestSupply()
+
+        if supplyPos then
+            pushLog(string.format("Supply ditemukan: (%.1f, %.1f, %.1f)",
+                supplyPos.X, supplyPos.Y, supplyPos.Z))
+
+            -- ② Jalan ke supply
+            setStatus("Menuju supply...")
+            local reached = moveToPosition(supplyPos)
+
+            if reached then
+                pushLog("Sampai di supply — muatan diambil.")
+                setStatus("Muatan diambil!")
+                task.wait(0.3)  -- jeda singkat simulasi pickup
+            else
+                pushLog("Timeout menuju supply — lanjut ke Base.")
+            end
+        else
+            pushLog("Tidak ada supply ditemukan — kembali ke Base.")
+        end
+
+        -- ③ Kembali ke Base
+        setStatus("Kembali ke Base...")
+        pushLog(string.format("Menuju Base: (%.1f, %.1f, %.1f)",
+            CFG.BasePosition.X, CFG.BasePosition.Y, CFG.BasePosition.Z))
+
+        local atBase = moveToPosition(CFG.BasePosition)
+
+        if atBase then
+            pushLog("Sampai di Base — muatan dibongkar.")
+            setStatus("Bongkar muatan selesai.")
+        else
+            pushLog("Timeout menuju Base.")
+            setStatus("Gagal ke Base — retry...")
+        end
+
+        task.wait(0.2)
+    end
+end
+
+-- Jalankan
+task.spawn(main)

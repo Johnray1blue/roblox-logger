@@ -180,8 +180,7 @@ local function hookAll()
     -- Cari folder RE secara rekursif, ga hardcode path
     local networking = nil
     for _, obj in ipairs(RS:GetDescendants()) do
-        if obj.Name == "RE" and obj:IsA("Folder") then
-            if obj:FindFirstChild("EggWorld") then
+        if obj.Name == "RE" and obj:FindFirstChild("EggWorld") then
                 networking = obj
                 break
             end

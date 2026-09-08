@@ -7,115 +7,138 @@ local RS      = game:GetService("ReplicatedStorage")
 
 local player  = Players.LocalPlayer
 local gui     = Instance.new("ScreenGui")
-gui.Name = "EggWatcher"; gui.ResetOnSpawn = false
-gui.Parent = player:WaitForChild("PlayerGui")
+gui.Name = "EggWatcher"
+gui.ResetOnSpawn = false
+gui.Parent = game:GetService("CoreGui")
 
--- Toggle button — pojok kanan bawah, kecil
+-- Toggle button
 local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size             = UDim2.new(0, 70, 0, 22)
-toggleBtn.Position         = UDim2.new(1, -78, 1, -30)
+toggleBtn.Size             = UDim2.new(0, 90, 0, 28)
+toggleBtn.Position         = UDim2.new(0, 8, 1, -68)
 toggleBtn.BackgroundColor3 = Color3.fromRGB(20, 100, 50)
 toggleBtn.BorderSizePixel  = 0
-toggleBtn.Text             = "LOG"
+toggleBtn.Text             = "EGG LOG"
 toggleBtn.TextColor3       = Color3.new(1,1,1)
-toggleBtn.TextSize         = 11
+toggleBtn.TextSize         = 12
 toggleBtn.Font             = Enum.Font.GothamBold
 toggleBtn.ZIndex           = 10
 toggleBtn.Parent           = gui
 
--- Panel — hidden by default, hook jalan di background
+-- Panel
 local panel = Instance.new("Frame")
 panel.Size             = UDim2.new(0, 460, 0, 420)
-panel.Position         = UDim2.new(1, -474, 1, -460)
+panel.Position         = UDim2.new(0, 8, 1, -500)
 panel.BackgroundColor3 = Color3.fromRGB(6, 14, 10)
 panel.BorderSizePixel  = 0
 panel.Visible          = false
 panel.ZIndex           = 9
 panel.Parent           = gui
 local ps = Instance.new("UIStroke", panel)
-ps.Color = Color3.fromRGB(40, 180, 80); ps.Thickness = 1
+ps.Color = Color3.fromRGB(40, 180, 80)
+ps.Thickness = 1
 
+-- Header
 local hdr = Instance.new("Frame")
-hdr.Size = UDim2.new(1,0,0,24)
+hdr.Size             = UDim2.new(1,0,0,24)
 hdr.BackgroundColor3 = Color3.fromRGB(20, 100, 50)
-hdr.BorderSizePixel = 0; hdr.ZIndex = 10; hdr.Parent = panel
+hdr.BorderSizePixel  = 0
+hdr.ZIndex           = 10
+hdr.Parent           = panel
 
 local hLbl = Instance.new("TextLabel")
-hLbl.Size = UDim2.new(1,-30,1,0); hLbl.Position = UDim2.new(0,6,0,0)
-hLbl.BackgroundTransparency = 1; hLbl.Text = "EGG WORLD WATCHER"
-hLbl.TextColor3 = Color3.new(1,1,1); hLbl.TextSize = 11
-hLbl.Font = Enum.Font.GothamBold
-hLbl.TextXAlignment = Enum.TextXAlignment.Left
-hLbl.ZIndex = 11; hLbl.Parent = hdr
+hLbl.Size                  = UDim2.new(1,-30,1,0)
+hLbl.Position              = UDim2.new(0,6,0,0)
+hLbl.BackgroundTransparency = 1
+hLbl.Text                  = "EGG WORLD WATCHER"
+hLbl.TextColor3            = Color3.new(1,1,1)
+hLbl.TextSize              = 11
+hLbl.Font                  = Enum.Font.GothamBold
+hLbl.TextXAlignment        = Enum.TextXAlignment.Left
+hLbl.ZIndex                = 11
+hLbl.Parent                = hdr
 
 local xBtn = Instance.new("TextButton")
-xBtn.Size = UDim2.new(0,26,1,0); xBtn.Position = UDim2.new(1,-26,0,0)
-xBtn.BackgroundTransparency = 1; xBtn.Text = "X"
-xBtn.TextColor3 = Color3.new(1,1,1); xBtn.TextSize = 12
-xBtn.Font = Enum.Font.GothamBold; xBtn.ZIndex = 11; xBtn.Parent = hdr
+xBtn.Size               = UDim2.new(0,26,1,0)
+xBtn.Position           = UDim2.new(1,-26,0,0)
+xBtn.BackgroundTransparency = 1
+xBtn.Text               = "X"
+xBtn.TextColor3         = Color3.new(1,1,1)
+xBtn.TextSize           = 12
+xBtn.Font               = Enum.Font.GothamBold
+xBtn.ZIndex             = 11
+xBtn.Parent             = hdr
 
+-- Scroll
 local scroll = Instance.new("ScrollingFrame")
-scroll.Size = UDim2.new(1,-6,1,-60)
-scroll.Position = UDim2.new(0,3,0,26)
+scroll.Size                 = UDim2.new(1,-6,1,-60)
+scroll.Position             = UDim2.new(0,3,0,26)
 scroll.BackgroundTransparency = 1
-scroll.BorderSizePixel = 0
-scroll.ScrollBarThickness = 3
+scroll.BorderSizePixel      = 0
+scroll.ScrollBarThickness   = 3
 scroll.ScrollBarImageColor3 = Color3.fromRGB(40,180,80)
-scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-scroll.CanvasSize = UDim2.new(0,0,0,0)
-scroll.ZIndex = 10; scroll.Parent = panel
+scroll.AutomaticCanvasSize  = Enum.AutomaticSize.Y
+scroll.CanvasSize           = UDim2.new(0,0,0,0)
+scroll.ZIndex               = 10
+scroll.Parent               = panel
 
 local ll = Instance.new("UIListLayout", scroll)
-ll.Padding = UDim.new(0,1); ll.SortOrder = Enum.SortOrder.LayoutOrder
+ll.Padding   = UDim.new(0,1)
+ll.SortOrder = Enum.SortOrder.LayoutOrder
 local lp = Instance.new("UIPadding", scroll)
-lp.PaddingTop = UDim.new(0,3)
-lp.PaddingLeft = UDim.new(0,4)
+lp.PaddingTop   = UDim.new(0,3)
+lp.PaddingLeft  = UDim.new(0,4)
 lp.PaddingRight = UDim.new(0,4)
 
+-- Bottom buttons
 local bRow = Instance.new("Frame")
-bRow.Size = UDim2.new(1,0,0,32)
-bRow.Position = UDim2.new(0,0,1,-32)
+bRow.Size             = UDim2.new(1,0,0,32)
+bRow.Position         = UDim2.new(0,0,1,-32)
 bRow.BackgroundColor3 = Color3.fromRGB(10,20,12)
-bRow.BorderSizePixel = 0; bRow.ZIndex = 10; bRow.Parent = panel
+bRow.BorderSizePixel  = 0
+bRow.ZIndex           = 10
+bRow.Parent           = panel
 
 local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(0.5,-2,1,-8)
-copyBtn.Position = UDim2.new(0,4,0,4)
+copyBtn.Size             = UDim2.new(0.5,-2,1,-8)
+copyBtn.Position         = UDim2.new(0,4,0,4)
 copyBtn.BackgroundColor3 = Color3.fromRGB(20,80,40)
-copyBtn.BorderSizePixel = 0
-copyBtn.Text = "Copy All"
-copyBtn.TextColor3 = Color3.new(1,1,1)
-copyBtn.TextSize = 11
-copyBtn.Font = Enum.Font.GothamBold
-copyBtn.ZIndex = 11; copyBtn.Parent = bRow
+copyBtn.BorderSizePixel  = 0
+copyBtn.Text             = "Copy All"
+copyBtn.TextColor3       = Color3.new(1,1,1)
+copyBtn.TextSize         = 11
+copyBtn.Font             = Enum.Font.GothamBold
+copyBtn.ZIndex           = 11
+copyBtn.Parent           = bRow
 
 local clearBtn = Instance.new("TextButton")
-clearBtn.Size = UDim2.new(0.5,-2,1,-8)
-clearBtn.Position = UDim2.new(0.5,2,0,4)
+clearBtn.Size             = UDim2.new(0.5,-2,1,-8)
+clearBtn.Position         = UDim2.new(0.5,2,0,4)
 clearBtn.BackgroundColor3 = Color3.fromRGB(50,20,20)
-clearBtn.BorderSizePixel = 0
-clearBtn.Text = "Clear"
-clearBtn.TextColor3 = Color3.new(1,1,1)
-clearBtn.TextSize = 11
-clearBtn.Font = Enum.Font.GothamBold
-clearBtn.ZIndex = 11; clearBtn.Parent = bRow
+clearBtn.BorderSizePixel  = 0
+clearBtn.Text             = "Clear"
+clearBtn.TextColor3       = Color3.new(1,1,1)
+clearBtn.TextSize         = 11
+clearBtn.Font             = Enum.Font.GothamBold
+clearBtn.ZIndex           = 11
+clearBtn.Parent           = bRow
 
 -- ── LOG ──────────────────────────────────────────────────────
 local logIdx = 0
 local function log(msg, color)
     logIdx += 1
     local l = Instance.new("TextLabel")
-    l.Size = UDim2.new(1,0,0,0)
-    l.AutomaticSize = Enum.AutomaticSize.Y
+    l.Size               = UDim2.new(1,0,0,0)
+    l.AutomaticSize      = Enum.AutomaticSize.Y
     l.BackgroundTransparency = 1
-    l.Text = os.date("%H:%M:%S") .. " " .. msg
-    l.TextColor3 = color or Color3.fromRGB(160, 230, 180)
-    l.TextSize = 10
-    l.Font = Enum.Font.Code
-    l.TextXAlignment = Enum.TextXAlignment.Left
-    l.TextWrapped = true
-    l.LayoutOrder = logIdx
-    l.ZIndex = 11; l.Parent = scroll
+    l.Text               = os.date("%H:%M:%S") .. " " .. msg
+    l.TextColor3         = color or Color3.fromRGB(160, 230, 180)
+    l.TextSize           = 10
+    l.Font               = Enum.Font.Code
+    l.TextXAlignment     = Enum.TextXAlignment.Left
+    l.TextWrapped        = true
+    l.LayoutOrder        = logIdx
+    l.ZIndex             = 11
+    l.Parent             = scroll
     task.defer(function() scroll.CanvasPosition = Vector2.new(0, math.huge) end)
 end
 
@@ -161,14 +184,13 @@ local function hookRemote(remote, folderName)
             table.insert(parts, string.format("[%d]%s", i, deepDump(a)))
         end
         local argStr = #parts > 0 and table.concat(parts, "  ") or "(no args)"
-        log(string.format("🟢 %s/%s", folderName, remote.Name), Color3.fromRGB(80, 255, 140))
-        log(string.format("   └─ %s", argStr), Color3.fromRGB(200, 255, 200))
+        log(string.format(">> %s/%s", folderName, remote.Name), Color3.fromRGB(80, 255, 140))
+        log(string.format("   %s", argStr), Color3.fromRGB(200, 255, 200))
     end)
     table.insert(conns, conn)
 end
 
 local function hookAll()
-    -- Cari RE folder tanpa hardcode path
     local reFolder = nil
     for _, obj in ipairs(RS:GetDescendants()) do
         if obj.Name == "RE" and obj:FindFirstChild("EggWorld") then
@@ -178,16 +200,16 @@ local function hookAll()
     end
 
     if not reFolder then
-        log("RE/EggWorld tidak ditemukan!", Color3.fromRGB(255,80,80))
+        log("GAGAL: RE/EggWorld tidak ditemukan!", Color3.fromRGB(255,80,80))
         for _, obj in ipairs(RS:GetDescendants()) do
             if obj:IsA("RemoteEvent") and obj.Name:lower():find("egg") then
-                log("  → " .. obj:GetFullName(), Color3.fromRGB(255,180,60))
+                log("  -> " .. obj:GetFullName(), Color3.fromRGB(255,180,60))
             end
         end
         return
     end
 
-    log("RE ditemukan: " .. reFolder:GetFullName(), Color3.fromRGB(100,255,150))
+    log("OK: RE = " .. reFolder:GetFullName(), Color3.fromRGB(100,255,150))
 
     local count = 0
     for _, folder in ipairs(reFolder:GetChildren()) do
@@ -210,7 +232,7 @@ local function hookAll()
     end
 
     log(string.format("Hooking %d remote", count), Color3.fromRGB(100, 255, 150))
-    log("Sekarang: ambil egg manual → balik base → copy log", Color3.fromRGB(200, 200, 100))
+    log("Ambil egg manual sekarang, lalu Copy All", Color3.fromRGB(200, 200, 100))
 end
 
 -- ── BUTTONS ──────────────────────────────────────────────────
@@ -224,10 +246,10 @@ copyBtn.MouseButton1Click:Connect(function()
     for _, l in ipairs(labels) do table.insert(lines, l.Text) end
     setclipboard(table.concat(lines, "\n"))
     local prev = copyBtn.Text
-    copyBtn.Text = "Copied!"
+    copyBtn.Text             = "Copied!"
     copyBtn.BackgroundColor3 = Color3.fromRGB(10,120,60)
     task.delay(1.5, function()
-        copyBtn.Text = prev
+        copyBtn.Text             = prev
         copyBtn.BackgroundColor3 = Color3.fromRGB(20,80,40)
     end)
 end)
@@ -249,6 +271,6 @@ xBtn.MouseButton1Click:Connect(function()
     panel.Visible = false
 end)
 
--- ── START ─────────────────────────────────────────────────────
+-- ── START ────────────────────────────────────────────────────
 hookAll()
-log("Watcher aktif. Lakukan aksi di game sekarang.")
+log("Watcher aktif. Ambil egg lalu Copy All.")

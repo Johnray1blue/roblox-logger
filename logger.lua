@@ -83,7 +83,7 @@ copyBtn.Size = UDim2.new(0.5,-2,1,-8)
 copyBtn.Position = UDim2.new(0,4,0,4)
 copyBtn.BackgroundColor3 = Color3.fromRGB(20,80,40)
 copyBtn.BorderSizePixel = 0
-copyBtn.Text = "📋 Copy All"
+copyBtn.Text = "Copy All"
 copyBtn.TextColor3 = Color3.new(1,1,1)
 copyBtn.TextSize = 11
 copyBtn.Font = Enum.Font.GothamBold
@@ -94,7 +94,7 @@ clearBtn.Size = UDim2.new(0.5,-2,1,-8)
 clearBtn.Position = UDim2.new(0.5,2,0,4)
 clearBtn.BackgroundColor3 = Color3.fromRGB(50,20,20)
 clearBtn.BorderSizePixel = 0
-clearBtn.Text = "🗑 Clear"
+clearBtn.Text = "Clear"
 clearBtn.TextColor3 = Color3.new(1,1,1)
 clearBtn.TextSize = 11
 clearBtn.Font = Enum.Font.GothamBold
@@ -178,7 +178,7 @@ local function hookAll()
     end
 
     if not reFolder then
-        log("❌ RE/EggWorld tidak ditemukan!", Color3.fromRGB(255,80,80))
+        log("RE/EggWorld tidak ditemukan!", Color3.fromRGB(255,80,80))
         for _, obj in ipairs(RS:GetDescendants()) do
             if obj:IsA("RemoteEvent") and obj.Name:lower():find("egg") then
                 log("  → " .. obj:GetFullName(), Color3.fromRGB(255,180,60))
@@ -187,7 +187,7 @@ local function hookAll()
         return
     end
 
-    log("✅ RE ditemukan: " .. reFolder:GetFullName(), Color3.fromRGB(100,255,150))
+    log("RE ditemukan: " .. reFolder:GetFullName(), Color3.fromRGB(100,255,150))
 
     local count = 0
     for _, folder in ipairs(reFolder:GetChildren()) do
@@ -209,7 +209,7 @@ local function hookAll()
         end
     end
 
-    log(string.format("✅ Hooking %d remote", count), Color3.fromRGB(100, 255, 150))
+    log(string.format("Hooking %d remote", count), Color3.fromRGB(100, 255, 150))
     log("Sekarang: ambil egg manual → balik base → copy log", Color3.fromRGB(200, 200, 100))
 end
 
@@ -224,7 +224,7 @@ copyBtn.MouseButton1Click:Connect(function()
     for _, l in ipairs(labels) do table.insert(lines, l.Text) end
     setclipboard(table.concat(lines, "\n"))
     local prev = copyBtn.Text
-    copyBtn.Text = "✅ Copied!"
+    copyBtn.Text = "Copied!"
     copyBtn.BackgroundColor3 = Color3.fromRGB(10,120,60)
     task.delay(1.5, function()
         copyBtn.Text = prev
